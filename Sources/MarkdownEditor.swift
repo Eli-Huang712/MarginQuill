@@ -4,6 +4,7 @@ import SwiftUI
 struct MarkdownEditor: NSViewRepresentable {
     @Binding var text: String
     var isEditable: Bool
+    @Environment(\.paperAccent) private var accent
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -48,6 +49,7 @@ struct MarkdownEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let editor = scroll.documentView as? NSTextView else { return }
         editor.isEditable = isEditable
+        editor.insertionPointColor = accent.nsColor
         context.coordinator.text = $text
         if editor.string != text {
             editor.string = text

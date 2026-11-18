@@ -87,14 +87,16 @@ enum AppAccent: String, CaseIterable, Identifiable {
         }
     }
 
-    var color: Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
+    var nsColor: NSColor {
+        NSColor(name: nil) { appearance in
             let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             let raw = UInt32(hex(dark: dark).dropFirst(), radix: 16) ?? 0x633FCA
             return NSColor(srgbRed: CGFloat((raw >> 16) & 255) / 255, green: CGFloat((raw >> 8) & 255) / 255,
                            blue: CGFloat(raw & 255) / 255, alpha: 1)
-        })
+        }
     }
+
+    var color: Color { Color(nsColor: nsColor) }
 }
 
 private struct AccentPreference: EnvironmentKey {
