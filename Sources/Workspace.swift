@@ -10,11 +10,12 @@ final class Workspace: ObservableObject {
     @Published private(set) var isPreparing = false
     @Published private(set) var isRecognizing = false
     @Published private(set) var isAddingReminder = false
+    @Published private(set) var isAddingEvent = false
     @Published private(set) var availableReminderLists: [ReminderList]?
     @Published private(set) var hasKey: Bool
     @Published private(set) var imagesChanged = false
     @Published var selectedPageID: UUID?
-    @Published var model = RecognitionModel.terra
+    @Published var model = RecognitionModel.preferred
     @Published var showingSource = false
     @Published var showingHistory = UserDefaults.standard.bool(forKey: "showsHistorySidebar") {
         didSet { UserDefaults.standard.set(showingHistory, forKey: "showsHistorySidebar") }
@@ -22,23 +23,27 @@ final class Workspace: ObservableObject {
     @Published var notice = ""
     @Published var error: String?
     @Published var showingSettings = false
+    @Published var settingsSection = SettingsSection.general
 
     private let library: NoteLibrary
     private let client: RecognitionClient
     private let reminders: any ReminderService
+    private let calendar: any CalendarService
     private let loadKey: () -> String?
     private var recognition: Task<Void, Never>?
     private var requestID: UUID?
 
     init(library: NoteLibrary = .local, client: RecognitionClient = RecognitionClient(),
-         loadKey: @escaping () -> String? = Keychain.load, reminders: (any ReminderService)? = nil) {
+         loadKey: @escaping () -> String? = Keychain.load, reminders: (any ReminderService)? = nil,
+         calendar: (any CalendarService)? = nil) {
         self.library = library
         self.client = client
         self.reminders = reminders ?? AppleReminders()
+        self.calendar = calendar ?? AppleCalendar()
         self.loadKey = loadKey
         hasKey = loadKey() != nil
         do { history = try library.list() }
-        catch { self.error = "部分历史记录无法载入。\(error.localizedDescription)" }
+        catch { self.error = L("部分历史记录无法载入。%@", error.localizedDescription) }
     }
 
     var selectedPage: PaperPage? { pages.first { $0.id == selectedPageID } }
@@ -56,7 +61,7 @@ final class Workspace: ObservableObject {
         panel.allowedContentTypes = [.image, .pdf]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.prompt = "导入"
+        panel.prompt = L("导入")
         guard panel.runModal() == .OK else { return }
         load(urls: panel.urls)
     }
@@ -74,7 +79,7 @@ final class Workspace: ObservableObject {
         }
         append(imported)
         if !failures.isEmpty {
-            error = "这些文件无法导入：\(failures.joined(separator: "、"))"
+            error = L("这些文件无法导入：%@", failures.joined(separator: L("、")))
         }
     }
 
@@ -103,7 +108,7 @@ final class Workspace: ObservableObject {
             defer { isPreparing = false }
             var failed = 0
             for (index, job) in jobs.enumerated() {
-                notice = "正在预处理 \(index + 1)/\(jobs.count) 页…"
+                notice = L("正在预处理 %@/%@ 页…", index + 1, jobs.count)
                 do {
                     let output = try await Task.detached(priority: .userInitiated) {
                         try await PhotoPreprocessor.run(job.1)
@@ -114,7 +119,7 @@ final class Workspace: ObservableObject {
                     self.error = error.localizedDescription
                 }
             }
-            notice = failed == 0 ? "已导入 \(newPages.count) 页" : "\(failed) 页使用原图"
+            notice = failed == 0 ? L("已导入 %@ 页", newPages.count) : L("%@ 页使用原图", failed)
         }
     }
 
@@ -147,14 +152,14 @@ final class Workspace: ObservableObject {
         isPreparing = true
         defer { isPreparing = false }
         error = nil
-        notice = "正在裁正纸稿…"
+        notice = L("正在裁正纸稿…")
         do {
             let output = try await Task.detached(priority: .userInitiated) {
                 try await PhotoPreprocessor.run(page.source, crop: crop, enhance: enhance)
             }.value
             updatePage(id: id, output: output, crop: crop, enhanced: enhance)
             imagesChanged = true
-            notice = output.corners == nil ? "使用完整纸页" : "已应用角点"
+            notice = output.corners == nil ? L("使用完整纸页") : L("已应用角点")
             return true
         } catch {
             notice = ""
@@ -183,7 +188,7 @@ final class Workspace: ObservableObject {
     func detectCorners(for id: UUID) async -> Bool {
         guard !isWorking, let page = pages.first(where: { $0.id == id }) else { return false }
         isPreparing = true
-        notice = "正在查找纸边…"
+        notice = L("正在查找纸边…")
         error = nil
         defer { isPreparing = false }
         do {
@@ -194,7 +199,7 @@ final class Workspace: ObservableObject {
             guard let index = pages.firstIndex(where: { $0.id == id }) else { return false }
             pages[index].automaticCorners = detection.corners
             pages[index].cornerSuggestions = detection.suggestions
-            notice = detection.suggestions.isEmpty ? "可手动调整纸页四角" : "已找到 \(detection.suggestions.count) 个纸边候选"
+            notice = detection.suggestions.isEmpty ? L("可手动调整纸页四角") : L("已找到 %@ 个纸边候选", detection.suggestions.count)
             return true
         } catch {
             self.error = error.localizedDescription
@@ -205,12 +210,13 @@ final class Workspace: ObservableObject {
     func recognize() {
         guard !isWorking, !pages.isEmpty else { return }
         guard let key = loadKey(), !key.isEmpty else {
+            settingsSection = .recognition
             showingSettings = true
             return
         }
         guard let url = Bundle.main.url(forResource: "transcription_prompt", withExtension: "txt"),
               let prompt = try? String(contentsOf: url, encoding: .utf8) else {
-            error = "找不到识别提示词。"
+            error = L("找不到识别提示词。")
             return
         }
 
@@ -221,7 +227,7 @@ final class Workspace: ObservableObject {
             target = NoteRecord(model: model, pages: pages.map(NoteRecord.Page.init))
             do { try library.create(target, from: pages) }
             catch {
-                self.error = "无法建立历史记录。\(error.localizedDescription)"
+                self.error = L("无法建立历史记录。%@", error.localizedDescription)
                 return
             }
             updateRecord(target)
@@ -248,25 +254,26 @@ final class Workspace: ObservableObject {
                 }
             }
             for (index, png) in pending {
-                notice = "正在识别第 \(index + 1)/\(target.pages.count) 页…"
+                notice = L("正在识别第 %@/%@ 页…", index + 1, target.pages.count)
                 do {
                     let result = try await client.recognize(png: png, model: target.model, key: key, prompt: prompt)
                     guard !Task.isCancelled, requestID == id else { return }
                     target.pages[index].markdown = result.markdown
                     target.pages[index].issues = result.issues
                     target.pages[index].todos = result.todos
+                    target.pages[index].events = result.events
                     target.pages[index].usage = result.usage
                     target.pages[index].error = nil
                 } catch {
                     guard !Task.isCancelled, requestID == id else { return }
                     target.pages[index].error = error.localizedDescription
                     if !persist(target) { return }
-                    notice = "第 \(index + 1) 页暂停 · 已完成 \(target.completedCount)/\(target.pages.count) 页"
+                    notice = L("第 %@ 页暂停 · 已完成 %@/%@ 页", index + 1, target.completedCount, target.pages.count)
                     return
                 }
                 if !persist(target) { return }
             }
-            notice = "已按顺序整理 \(target.completedCount) 页"
+            notice = L("已按顺序整理 %@ 页", target.completedCount)
         }
     }
 
@@ -275,7 +282,7 @@ final class Workspace: ObservableObject {
         recognition = nil
         requestID = nil
         isRecognizing = false
-        notice = "已停止等待，已完成的页面已保存"
+        notice = L("已停止等待，已完成的页面已保存")
     }
 
     private func updateRecord(_ updated: NoteRecord) {
@@ -292,7 +299,7 @@ final class Workspace: ObservableObject {
         updateRecord(updated)
         do { try library.save(updated) }
         catch {
-            self.error = "历史记录暂未写入。\(error.localizedDescription)"
+            self.error = L("历史记录暂未写入。%@", error.localizedDescription)
             return false
         }
         return true
@@ -316,10 +323,10 @@ final class Workspace: ObservableObject {
 
     func addReminder(_ id: UUID, to list: ReminderList, title: String, date: ReminderDay?) async throws {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { throw AppFailure.message("请输入待办标题。") }
+        guard !title.isEmpty else { throw AppFailure.message(L("请输入待办标题。")) }
         guard !isWorking, !isAddingReminder, let current = record,
               let todo = current.pages.lazy.compactMap({ $0.todos?.first { $0.id == id } }).first else {
-            throw AppFailure.message("纸稿正在处理或已切换，请稍后再试。")
+            throw AppFailure.message(L("纸稿正在处理或已切换，请稍后再试。"))
         }
         if todo.delivery?.sent == true { return }
         isAddingReminder = true
@@ -342,7 +349,7 @@ final class Workspace: ObservableObject {
         delivery.sent = true
         updated = try recordingDelivery(delivery, for: id, recordID: current.id)
         error = nil
-        notice = "已加入提醒事项"
+        notice = L("已加入提醒事项")
         persist(updated)
     }
 
@@ -350,9 +357,55 @@ final class Workspace: ObservableObject {
         guard !isWorking, var record, record.id == recordID,
               let page = record.pages.firstIndex(where: { $0.todos?.contains { $0.id == id } == true }),
               let index = record.pages[page].todos?.firstIndex(where: { $0.id == id }) else {
-            throw AppFailure.message("纸稿已切换，请重新打开该待办。")
+            throw AppFailure.message(L("纸稿已切换，请重新打开该待办。"))
         }
         record.pages[page].todos?[index].delivery = delivery
+        return record
+    }
+
+    func addCalendarEvent(_ id: UUID, title: String, start: Date, end: Date, allDay: Bool) async throws {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, end > start else {
+            throw AppFailure.message(L("请输入标题，并确认结束时间晚于开始时间。"))
+        }
+        guard !isWorking, !isAddingEvent, let current = record,
+              let event = current.pages.lazy.compactMap({ $0.events?.first { $0.id == id } }).first,
+              event.delivery == nil else { return }
+        isAddingEvent = true
+        defer { isAddingEvent = false }
+
+        try await calendar.authorize()
+        try Task.checkCancellation()
+        // Reserve before writing. An interrupted write must be checked in Calendar before retrying.
+        var delivery = CalendarDelivery(title: title, start: start, end: end, allDay: allDay)
+        var updated = try recordingEvent(delivery, for: id, recordID: current.id)
+        try library.save(updated)
+        updateRecord(updated)
+        try calendar.add(delivery)
+        delivery.sent = true
+        updated = try recordingEvent(delivery, for: id, recordID: current.id)
+        error = nil
+        notice = L("已加入日历")
+        persist(updated)
+    }
+
+    func resetPendingEvent(_ id: UUID) throws {
+        guard !isAddingEvent, let current = record,
+              current.pages.contains(where: { $0.events?.contains { $0.id == id && $0.delivery?.sent == false } == true }) else {
+            return
+        }
+        let updated = try recordingEvent(nil, for: id, recordID: current.id)
+        try library.save(updated)
+        updateRecord(updated)
+    }
+
+    private func recordingEvent(_ delivery: CalendarDelivery?, for id: UUID, recordID: UUID) throws -> NoteRecord {
+        guard !isWorking, var record, record.id == recordID,
+              let page = record.pages.firstIndex(where: { $0.events?.contains { $0.id == id } == true }),
+              let index = record.pages[page].events?.firstIndex(where: { $0.id == id }) else {
+            throw AppFailure.message(L("纸稿已切换，请重新打开该日程。"))
+        }
+        record.pages[page].events?[index].delivery = delivery
         return record
     }
 
@@ -367,10 +420,10 @@ final class Workspace: ObservableObject {
             selectedPageID = restored.first?.id
             showingSource = false
             imagesChanged = false
-            notice = "已打开历史记录"
+            notice = L("已打开历史记录")
             error = nil
         } catch {
-            self.error = "无法打开历史记录。\(error.localizedDescription)"
+            self.error = L("无法打开历史记录。%@", error.localizedDescription)
         }
     }
 
@@ -401,10 +454,10 @@ final class Workspace: ObservableObject {
                 imagesChanged = false
                 showingSource = false
             }
-            notice = "记录已移到废纸篓"
+            notice = L("记录已移到废纸篓")
             error = nil
         } catch {
-            self.error = "无法将记录移到废纸篓。\(error.localizedDescription)"
+            self.error = L("无法将记录移到废纸篓。%@", error.localizedDescription)
         }
     }
 
@@ -412,11 +465,12 @@ final class Workspace: ObservableObject {
         guard !isWorking else { return }
         do { try saveCurrentDraft() }
         catch {
-            self.error = "无法保存当前纸稿。\(error.localizedDescription)"
+            self.error = L("无法保存当前纸稿。%@", error.localizedDescription)
             return
         }
         pages = []
         record = nil
+        model = .preferred
         selectedPageID = nil
         showingSource = false
         imagesChanged = false
@@ -429,7 +483,7 @@ final class Workspace: ObservableObject {
             try saveCurrentDraft()
             return true
         } catch {
-            self.error = "无法保存当前纸稿。\(error.localizedDescription)"
+            self.error = L("无法保存当前纸稿。%@", error.localizedDescription)
             return false
         }
     }
@@ -445,7 +499,7 @@ final class Workspace: ObservableObject {
         guard !markdown.isEmpty else { return }
         NSPasteboard.general.clearContents()
         if NSPasteboard.general.setString(markdown, forType: .string) {
-            notice = "已复制 Markdown"
+            notice = L("已复制 Markdown")
             error = nil
         }
     }
@@ -454,20 +508,20 @@ final class Workspace: ObservableObject {
         guard !markdown.isEmpty else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
-        panel.nameFieldStringValue = "纸稿笔记.md"
+        panel.nameFieldStringValue = L("纸稿笔记.md")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try markdown.write(to: url, atomically: true, encoding: .utf8)
-            notice = "已导出 \(url.lastPathComponent)"
+            notice = L("已导出 %@", url.lastPathComponent)
             error = nil
         } catch {
-            self.error = "无法导出 Markdown。\(error.localizedDescription)"
+            self.error = L("无法导出 Markdown。%@", error.localizedDescription)
         }
     }
 
     func storeKey(_ raw: String) throws {
         let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { throw AppFailure.message("请输入 API 密钥。") }
+        guard !key.isEmpty else { throw AppFailure.message(L("请输入 API 密钥。")) }
         try Keychain.save(key)
         hasKey = true
     }

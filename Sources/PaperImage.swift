@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PaperImage: View {
+    @Environment(\.paperAccent) private var accent
     let photo: NSImage
     let annotation: CGRect?
     let badge: String?
@@ -20,7 +21,7 @@ struct PaperImage: View {
                 .frame(width: image.width, height: image.height)
                 .shadow(color: .black.opacity(0.12), radius: 7, y: 3)
                 .position(x: image.midX, y: image.midY)
-                .accessibilityLabel("纸稿预览")
+                .accessibilityLabel(L("纸稿预览"))
 
             if let annotation {
                 let region = CGRect(
@@ -30,20 +31,20 @@ struct PaperImage: View {
                     height: annotation.height * image.height
                 )
                 RoundedRectangle(cornerRadius: 3)
-                    .fill(PaperTheme.accent.opacity(0.13))
-                    .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(PaperTheme.accent, lineWidth: 2) }
+                    .fill(accent.color.opacity(0.13))
+                    .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(accent.color, lineWidth: 2) }
                     .overlay { RoundedRectangle(cornerRadius: 3).strokeBorder(.white.opacity(0.30), lineWidth: 0.5) }
                     .frame(width: region.width, height: region.height)
                     .position(x: region.midX, y: region.midY)
                     .allowsHitTesting(false)
-                    .accessibilityLabel("原稿上的大致注释位置")
+                    .accessibilityLabel(L("原稿上的大致注释位置"))
 
                 if let badge {
                     Text(badge)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Color(nsColor: .textBackgroundColor))
                         .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(PaperTheme.accent, in: Capsule())
+                        .background(accent.color, in: Capsule())
                         .fixedSize()
                         .position(x: min(image.maxX - 26, max(image.minX + 26, region.minX + 22)),
                                   y: max(10, region.minY - 12))

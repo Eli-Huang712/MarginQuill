@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "MarginQuill";
+"NSRemindersFullAccessUsageDescription" = "MarginQuill reads your writable reminder lists and adds to-dos you confirm. It checks for a previous addition only when recovering an interrupted save.";
+"NSCalendarsWriteOnlyAccessUsageDescription" = "MarginQuill adds events you confirm to the system default calendar.";

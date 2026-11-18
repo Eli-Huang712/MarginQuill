@@ -14,10 +14,13 @@ renderer.renderer.rules.fence = (tokens, index, options, environment, self) => {
 
 let revision = 0;
 
-window.renderPaperNotes = async (pages, annotations, dark) => {
+window.renderPaperNotes = async (pages, annotations, dark, accent, english) => {
   const run = ++revision;
   document.documentElement.dataset.theme = dark ? "dark" : "light";
+  document.documentElement.lang = english ? "en" : "zh-CN";
+  if (/^#[0-9a-f]{6}$/i.test(accent)) document.documentElement.style.setProperty("--accent", accent);
   const main = document.querySelector("main");
+  main.setAttribute("aria-label", english ? "Markdown preview" : "Markdown 预览");
   const fragment = document.createDocumentFragment();
   for (const { id, markdown } of pages) {
     const section = document.createElement("section");
@@ -40,11 +43,11 @@ window.renderPaperNotes = async (pages, annotations, dark) => {
     themeVariables: {
       darkMode: dark,
       fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-      primaryColor: dark ? "#30264f" : "#f2eeff",
-      primaryBorderColor: dark ? "#aa97fa" : "#7862da",
-      primaryTextColor: dark ? "#f0eaff" : "#322350",
-      lineColor: dark ? "#b2a5da" : "#776799",
-      tertiaryColor: dark ? "#252239" : "#f6f3fc"
+      primaryColor: dark ? "#292830" : "#F5F4F8",
+      primaryBorderColor: accent || (dark ? "#aa97fa" : "#7862da"),
+      primaryTextColor: dark ? "#F3F0F6" : "#242230",
+      lineColor: accent || (dark ? "#b2a5da" : "#776799"),
+      tertiaryColor: dark ? "#232229" : "#f6f5f8"
     }
   });
 
@@ -65,7 +68,7 @@ window.renderPaperNotes = async (pages, annotations, dark) => {
       // Leave the editable source available when a diagram contains invalid syntax.
     }
   }
-  if (run === revision) addAnnotations(annotations);
+  if (run === revision) addAnnotations(annotations, english);
 };
 
 function textAnchor(section, anchor) {
@@ -99,18 +102,19 @@ function textAnchor(section, anchor) {
   return range;
 }
 
-function addAnnotations(annotations) {
+function addAnnotations(annotations, english) {
   for (const item of annotations) {
     const section = document.getElementById("page-" + item.section);
     if (!section) continue;
     const button = document.createElement("button");
     button.type = "button";
     button.id = "issue-" + item.id;
-    button.className = item.todo ? "review-badge todo-badge" : "review-badge";
-    button.textContent = item.todo ? "待办 " + item.number : item.number;
-    const kind = item.todo ? "待办" : "注释";
-    button.setAttribute("aria-label", kind + " " + item.number + "，" + item.category);
-    button.title = "查看" + kind + " " + item.number + " · " + item.category;
+    const action = item.kind === "todo" || item.kind === "event";
+    button.className = action ? "review-badge action-badge" : "review-badge";
+    const kind = item.label || (english ? "Note" : "注释");
+    button.textContent = action ? kind + " " + item.number : item.number;
+    button.setAttribute("aria-label", kind + " " + item.number + (english ? ", " : "，") + item.category);
+    button.title = (english ? "View " : "查看") + kind + " " + item.number + " · " + item.category;
     button.onclick = () => window.webkit.messageHandlers.paperReview.postMessage(item.id);
 
     const anchor = item.anchor.trim();
@@ -121,7 +125,7 @@ function addAnnotations(annotations) {
       else placement.insertNode(button);
       continue;
     }
-    const diagrams = item.todo ? [] : [...section.querySelectorAll("figure.diagram")];
+    const diagrams = action ? [] : [...section.querySelectorAll("figure.diagram")];
     const matching = diagrams.filter((figure) => anchor && figure.querySelector("svg")?.textContent.includes(anchor));
     const diagram = matching.length === 1 ? matching[0] :
       (diagrams.length === 1 && /箭头|连线|节点|框图/.test(item.category) ? diagrams[0] : null);

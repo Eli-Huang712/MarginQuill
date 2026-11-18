@@ -12,11 +12,23 @@ struct PreviewAnnotation: Equatable {
     let number: Int
     let category: String
     let anchor: String?
-    var todo = false
+    var kind = AnnotationKind.review
 
     var payload: [String: Any] {
         ["id": id.uuidString, "section": section, "number": number, "category": category,
-         "anchor": anchor ?? "", "todo": todo]
+         "anchor": anchor ?? "", "kind": kind.rawValue, "label": kind.title]
+    }
+}
+
+enum AnnotationKind: String {
+    case review, todo, event
+
+    var title: String {
+        switch self {
+        case .review: L("注释")
+        case .todo: L("待办")
+        case .event: L("日历")
+        }
     }
 }
 
@@ -32,6 +44,7 @@ struct MarkdownPreview: NSViewRepresentable {
     let focus: PreviewFocus?
     let openAnnotation: (UUID) -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.paperAccent) private var accent
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -50,7 +63,8 @@ struct MarkdownPreview: NSViewRepresentable {
 
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.update(view, sections: sections, annotations: annotations,
-                                   dark: colorScheme == .dark, focus: focus, openAnnotation: openAnnotation)
+                                   dark: colorScheme == .dark, accent: accent.hex(dark: colorScheme == .dark),
+                                   focus: focus, openAnnotation: openAnnotation)
     }
 
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
@@ -64,19 +78,22 @@ struct MarkdownPreview: NSViewRepresentable {
         private var sections: [PreviewSection] = []
         private var annotations: [PreviewAnnotation] = []
         private var dark = false
+        private var accent = ""
         private var focus: PreviewFocus?
         private var openAnnotation: ((UUID) -> Void)?
         private var renderedSections: [PreviewSection]?
         private var renderedAnnotations: [PreviewAnnotation]?
         private var renderedDark: Bool?
+        private var renderedAccent: String?
         private var appliedFocus: PreviewFocus?
         private var rendering = false
 
         func update(_ view: WKWebView, sections: [PreviewSection], annotations: [PreviewAnnotation],
-                    dark: Bool, focus: PreviewFocus?, openAnnotation: @escaping (UUID) -> Void) {
+                    dark: Bool, accent: String, focus: PreviewFocus?, openAnnotation: @escaping (UUID) -> Void) {
             self.sections = sections
             self.annotations = annotations
             self.dark = dark
+            self.accent = accent
             self.focus = focus
             self.openAnnotation = openAnnotation
             render(view)
@@ -89,23 +106,26 @@ struct MarkdownPreview: NSViewRepresentable {
 
         private func render(_ view: WKWebView) {
             guard loaded, !rendering else { return }
-            if sections == renderedSections, annotations == renderedAnnotations, dark == renderedDark {
+            if sections == renderedSections, annotations == renderedAnnotations, dark == renderedDark, accent == renderedAccent {
                 applyFocus(view)
                 return
             }
             let rendered = sections
             let currentAnnotations = annotations
             let appearance = dark
+            let selectedAccent = accent
             let data = rendered.map { ["id": $0.id, "markdown": $0.markdown] }
             rendering = true
-            view.callAsyncJavaScript("await window.renderPaperNotes(pages, annotations, dark)", arguments: [
-                "pages": data, "annotations": currentAnnotations.map(\.payload), "dark": appearance
+            view.callAsyncJavaScript("await window.renderPaperNotes(pages, annotations, dark, accent, english)", arguments: [
+                "pages": data, "annotations": currentAnnotations.map(\.payload), "dark": appearance,
+                "accent": selectedAccent, "english": InterfaceLanguage.active == .english
             ], in: nil, in: .page) { [weak self, weak view] _ in
                 guard let self, let view else { return }
                 self.rendering = false
                 self.renderedSections = rendered
                 self.renderedAnnotations = currentAnnotations
                 self.renderedDark = appearance
+                self.renderedAccent = selectedAccent
                 self.appliedFocus = nil
                 self.render(view)
             }

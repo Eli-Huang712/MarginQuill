@@ -9,15 +9,15 @@ final class CaptureButton: NSButton, @preconcurrency NSServicesMenuRequestor {
     init(workspace: Workspace) {
         self.workspace = workspace
         super.init(frame: .zero)
-        title = "导入纸稿"
+        title = L("导入纸稿")
         image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
         imagePosition = .imageLeading
         bezelStyle = .rounded
         controlSize = .large
         target = self
         action = #selector(showCaptureMenu)
-        toolTip = "从 iPhone 或 iPad 拍摄、扫描，或导入本地文件"
-        setAccessibilityLabel("导入纸稿")
+        toolTip = L("从 iPhone 或 iPad 拍摄、扫描，或导入本地文件")
+        setAccessibilityLabel(L("导入纸稿"))
     }
 
     required init?(coder: NSCoder) { nil }
@@ -37,23 +37,23 @@ final class CaptureButton: NSButton, @preconcurrency NSServicesMenuRequestor {
 
     func readSelection(from pasteboard: NSPasteboard) -> Bool {
         if let data = pasteboard.data(forType: .pdf) {
-            return workspace.load(data: data, name: "iPhone 扫描")
+            return workspace.load(data: data, name: L("iPhone 扫描"))
         }
         let types: [NSPasteboard.PasteboardType] = [
             .png, .init(UTType.jpeg.identifier), .init(UTType.heic.identifier), .tiff
         ]
         for type in types {
             if let data = pasteboard.data(forType: type) {
-                return workspace.load(data: data, name: "iPhone 拍摄")
+                return workspace.load(data: data, name: L("iPhone 拍摄"))
             }
         }
         if let url = (pasteboard.readObjects(forClasses: [NSURL.self],
                                             options: [.urlReadingFileURLsOnly: true]) as? [URL])?.first,
            let data = try? Data(contentsOf: url) {
-            return workspace.load(data: data, name: "iPhone 导入")
+            return workspace.load(data: data, name: L("iPhone 导入"))
         }
         if let image = NSImage(pasteboard: pasteboard), let data = image.tiffRepresentation {
-            return workspace.load(data: data, name: "iPhone 拍摄")
+            return workspace.load(data: data, name: L("iPhone 拍摄"))
         }
         return false
     }
@@ -69,7 +69,7 @@ final class CaptureButton: NSButton, @preconcurrency NSServicesMenuRequestor {
             pressure: 1) else { return }
 
         let menu = NSMenu()
-        let open = NSMenuItem(title: "导入本地文件…", action: #selector(chooseFile), keyEquivalent: "")
+        let open = NSMenuItem(title: L("导入本地文件…"), action: #selector(chooseFile), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
         NSMenu.popUpContextMenu(menu, with: event, for: self)

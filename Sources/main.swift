@@ -15,6 +15,7 @@ final class PaperNotesApp: NSObject, NSApplicationDelegate, NSToolbarDelegate, N
     private var subscriptions = Set<AnyCancellable>()
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        AppAppearance.saved.apply()
         capture = CaptureButton(workspace: workspace)
         let root = NSMenu()
         let appMenu = NSMenuItem()
@@ -24,33 +25,33 @@ final class PaperNotesApp: NSObject, NSApplicationDelegate, NSToolbarDelegate, N
         root.addItem(fileMenu)
         root.addItem(editMenu)
 
-        let appActions = NSMenu(title: "纸笺")
-        appActions.addItem(NSMenuItem(title: "设置…", action: #selector(showSettings), keyEquivalent: ","))
+        let appActions = NSMenu(title: L("纸笺"))
+        appActions.addItem(NSMenuItem(title: L("设置…"), action: #selector(showSettings), keyEquivalent: ","))
         appActions.items.last?.target = self
         appActions.addItem(.separator())
-        appActions.addItem(withTitle: "退出纸笺", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appActions.addItem(withTitle: L("退出纸笺"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenu.submenu = appActions
 
-        let fileActions = NSMenu(title: "文件")
-        fileActions.addItem(withTitle: "新建", action: #selector(newNote), keyEquivalent: "n").target = self
-        let device = NSMenuItem(title: "从 iPhone 或 iPad 导入", action: nil, keyEquivalent: "")
+        let fileActions = NSMenu(title: L("文件"))
+        fileActions.addItem(withTitle: L("新建"), action: #selector(newNote), keyEquivalent: "n").target = self
+        let device = NSMenuItem(title: L("从 iPhone 或 iPad 导入"), action: nil, keyEquivalent: "")
         device.identifier = NSMenuItem.importFromDeviceIdentifier
         fileActions.addItem(device)
-        fileActions.addItem(withTitle: "导入文件…", action: #selector(CaptureButton.chooseFile), keyEquivalent: "o")
+        fileActions.addItem(withTitle: L("导入文件…"), action: #selector(CaptureButton.chooseFile), keyEquivalent: "o")
             .target = capture
-        fileActions.addItem(withTitle: "导出 Markdown…", action: #selector(exportMarkdown), keyEquivalent: "s")
+        fileActions.addItem(withTitle: L("导出 Markdown…"), action: #selector(exportMarkdown), keyEquivalent: "s")
             .target = self
         fileMenu.submenu = fileActions
 
-        let editActions = NSMenu(title: "编辑")
-        editActions.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = editActions.addItem(withTitle: "重做", action: Selector(("redo:")), keyEquivalent: "z")
+        let editActions = NSMenu(title: L("编辑"))
+        editActions.addItem(withTitle: L("撤销"), action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editActions.addItem(withTitle: L("重做"), action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         editActions.addItem(.separator())
-        editActions.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editActions.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editActions.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editActions.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editActions.addItem(withTitle: L("剪切"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editActions.addItem(withTitle: L("复制"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editActions.addItem(withTitle: L("粘贴"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editActions.addItem(withTitle: L("全选"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editMenu.submenu = editActions
         NSApp.mainMenu = root
     }
@@ -61,7 +62,7 @@ final class PaperNotesApp: NSObject, NSApplicationDelegate, NSToolbarDelegate, N
         let captureWindow = CaptureWindow(contentViewController: controller)
         captureWindow.captureButton = capture
         window = captureWindow
-        window.title = "纸笺"
+        window.title = L("纸笺")
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         let toolbar = NSToolbar(identifier: "PaperNotes.Toolbar")
         toolbar.delegate = self
@@ -89,7 +90,7 @@ final class PaperNotesApp: NSObject, NSApplicationDelegate, NSToolbarDelegate, N
 
     private func bindWindow(to toolbar: NSToolbar) {
         workspace.$record.map { record -> String in
-            guard let record, !record.markdown.isEmpty else { return "纸笺" }
+            guard let record, !record.markdown.isEmpty else { return L("纸笺") }
             return record.title
         }
         .removeDuplicates()
@@ -120,19 +121,19 @@ final class PaperNotesApp: NSObject, NSApplicationDelegate, NSToolbarDelegate, N
         item.isNavigational = true
         switch identifier {
         case Self.historyToolbar:
-            item.label = "历史记录"
+            item.label = L("历史记录")
             item.action = #selector(toggleHistory)
             historyItem = item
             updateHistoryItem(workspace.showingHistory)
         case Self.newToolbar:
-            item.label = "新建"
-            item.toolTip = "新建纸稿"
-            item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "新建")
+            item.label = L("新建")
+            item.toolTip = L("新建纸稿")
+            item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: L("新建"))
             item.action = #selector(newNote)
         case Self.settingsToolbar:
-            item.label = "API 设置"
-            item.toolTip = "OpenAI API 设置"
-            item.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "API 设置")
+            item.label = L("设置")
+            item.toolTip = L("设置")
+            item.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: L("设置"))
             item.action = #selector(showSettings)
         default:
             return nil
@@ -149,9 +150,9 @@ final class PaperNotesApp: NSObject, NSApplicationDelegate, NSToolbarDelegate, N
     }
 
     private func updateHistoryItem(_ visible: Bool) {
-        historyItem?.toolTip = visible ? "收起历史记录侧栏" : "展开历史记录侧栏"
+        historyItem?.toolTip = visible ? L("收起历史记录侧栏") : L("展开历史记录侧栏")
         let symbol = visible ? "sidebar.left" : "clock"
-        historyItem?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "历史记录")
+        historyItem?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: L("历史记录"))
     }
 
     @objc private func newNote() { workspace.newNote() }

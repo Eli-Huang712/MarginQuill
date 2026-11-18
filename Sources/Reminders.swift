@@ -29,9 +29,9 @@ struct ReminderDay: Codable, Equatable {
 
     var date: Date? { components.date }
 
-    func matchesPrintedDate(in text: String?) -> Bool {
+    func matchesPrintedDate(in text: String?, withTime: Bool = false) -> Bool {
         let fields = text?.split(whereSeparator: { !$0.isASCII || !$0.isNumber }) ?? []
-        return fields.map { Int($0) } == [year, month, day]
+        return (withTime ? fields.prefix(3) : fields[...]).map { Int($0) } == [year, month, day]
     }
 }
 
@@ -99,7 +99,7 @@ final class AppleReminders: ReminderService {
         return try await withCheckedThrowingContinuation { continuation in
             store.fetchReminders(matching: predicate) { reminders in
                 guard let reminders else {
-                    continuation.resume(throwing: AppFailure.message("无法核对上次添加结果，请稍后再试。"))
+                    continuation.resume(throwing: AppFailure.message(L("无法核对上次添加结果，请稍后再试。")))
                     return
                 }
                 continuation.resume(returning: reminders.contains { $0.notes == marker })
@@ -112,7 +112,7 @@ final class AppleReminders: ReminderService {
         guard let list = store.calendars(for: .reminder).first(where: {
             $0.calendarIdentifier == delivery.listID && $0.allowsContentModifications
         }) else {
-            throw AppFailure.message("这个提醒列表已不可写。请重新选择列表。")
+            throw AppFailure.message(L("这个提醒列表已不可写。请重新选择列表。"))
         }
         let reminder = EKReminder(eventStore: store)
         reminder.calendar = list
@@ -124,7 +124,7 @@ final class AppleReminders: ReminderService {
 
     private func requireAccess() throws {
         guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else {
-            throw AppFailure.message("请在「系统设置 → 隐私与安全性 → 提醒事项」允许纸笺访问。")
+            throw AppFailure.message(L("请在「系统设置 → 隐私与安全性 → 提醒事项」允许纸笺访问。"))
         }
     }
 

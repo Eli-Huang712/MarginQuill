@@ -7,6 +7,9 @@ enum RecognitionModel: String, CaseIterable, Identifiable, Codable, Sendable {
 
     var id: String { rawValue }
     var label: String { self == .terra ? "GPT-6.1 Terra" : "GPT-6 Luna" }
+    static var preferred: Self {
+        UserDefaults.standard.string(forKey: PreferenceKey.model).flatMap(Self.init(rawValue:)) ?? .terra
+    }
 }
 
 enum AppFailure: LocalizedError {
@@ -43,14 +46,14 @@ enum Keychain {
             status = SecItemAdd(query.merging(secret) { _, new in new } as CFDictionary, nil)
         }
         if status != errSecSuccess {
-            throw AppFailure.message("无法保存到钥匙串（\(status)）。")
+            throw AppFailure.message(L("无法保存到钥匙串（%@）。", status))
         }
     }
 
     static func remove() throws {
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw AppFailure.message("无法删除钥匙串中的密钥（\(status)）。")
+            throw AppFailure.message(L("无法删除钥匙串中的密钥（%@）。", status))
         }
     }
 }
@@ -64,6 +67,7 @@ struct RecognitionResult {
     let markdown: String
     let issues: [ReviewItem]
     let todos: [PaperTodo]
+    let events: [PaperEvent]
     let usage: APIUsage
 }
 
@@ -74,7 +78,7 @@ struct RecognitionClient {
         let request = try makeRequest(png: png, model: model, key: key, prompt: prompt)
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else {
-            throw AppFailure.message("没有收到有效的 API 响应。")
+            throw AppFailure.message(L("没有收到有效的 API 响应。"))
         }
         return try parseResponse(data, status: response.statusCode)
     }
@@ -113,7 +117,7 @@ struct RecognitionClient {
     private static let outputFormat: [String: Any] = [
         "type": "json_schema", "name": "paper_note_page", "strict": true,
         "schema": [
-            "type": "object", "required": ["markdown", "issues", "todos"], "additionalProperties": false,
+            "type": "object", "required": ["markdown", "issues", "todos", "events"], "additionalProperties": false,
             "properties": [
                 "markdown": ["type": "string"],
                 "issues": [
@@ -142,6 +146,24 @@ struct RecognitionClient {
                             "box": boxSchema
                         ]
                     ]
+                ],
+                "events": [
+                    "type": "array",
+                    "items": [
+                        "type": "object",
+                        "required": ["title", "whenText", "date", "startTime", "endTime", "allDay", "anchor", "box"],
+                        "additionalProperties": false,
+                        "properties": [
+                            "title": ["type": "string"],
+                            "whenText": ["type": ["string", "null"]],
+                            "date": ["type": ["string", "null"]],
+                            "startTime": ["type": ["string", "null"]],
+                            "endTime": ["type": ["string", "null"]],
+                            "allDay": ["type": "boolean"],
+                            "anchor": ["type": ["string", "null"]],
+                            "box": boxSchema
+                        ]
+                    ]
                 ]
             ]
         ]
@@ -158,11 +180,23 @@ struct RecognitionClient {
         let markdown: String
         let issues: [Item]
         let todos: [Todo]?
+        let events: [Event]?
 
         struct Todo: Decodable {
             let title: String
             let dueText: String?
             let date: String?
+            let anchor: String?
+            let box: ReviewBox?
+        }
+
+        struct Event: Decodable {
+            let title: String
+            let whenText: String?
+            let date: String?
+            let startTime: String?
+            let endTime: String?
+            let allDay: Bool
             let anchor: String?
             let box: ReviewBox?
         }
@@ -189,17 +223,17 @@ struct RecognitionClient {
     func parseResponse(_ data: Data, status: Int) throws -> RecognitionResult {
         switch status {
         case 200..<300: break
-        case 400: throw AppFailure.message("API 无法处理这张图或该模型参数（400）。")
-        case 401, 403: throw AppFailure.message("请检查 API 密钥以及该项目的模型权限（\(status)）。")
-        case 429: throw AppFailure.message("API 额度不足或请求太频繁（429）。请检查用量后重试。")
-        default: throw AppFailure.message("OpenAI API 返回 \(status)。请稍后重试。")
+        case 400: throw AppFailure.message(L("API 无法处理这张图或该模型参数（400）。"))
+        case 401, 403: throw AppFailure.message(L("请检查 API 密钥以及该项目的模型权限（%@）。", status))
+        case 429: throw AppFailure.message(L("API 额度不足或请求太频繁（429）。请检查用量后重试。"))
+        default: throw AppFailure.message(L("OpenAI API 返回 %@。请稍后重试。", status))
         }
         let result = try JSONDecoder().decode(Envelope.self, from: data)
         if result.status == "incomplete" {
-            throw AppFailure.message("识别结果未完整返回。可裁取较密的部分后重试。")
+            throw AppFailure.message(L("识别结果未完整返回。可裁取较密的部分后重试。"))
         }
         guard result.status == "completed" else {
-            throw AppFailure.message("API 未完成识别。请稍后重试。")
+            throw AppFailure.message(L("API 未完成识别。请稍后重试。"))
         }
         let text = (result.output ?? [])
             .filter { $0.type == "message" }
@@ -209,7 +243,7 @@ struct RecognitionClient {
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let content = try? JSONDecoder().decode(PageContent.self, from: Data(text.utf8)) else {
-            throw AppFailure.message("API 没有返回符合格式的识别结果。")
+            throw AppFailure.message(L("API 没有返回符合格式的识别结果。"))
         }
         let issues = content.issues.map {
             ReviewItem(category: $0.category, location: $0.location, detail: $0.detail,
@@ -223,8 +257,17 @@ struct RecognitionClient {
                              date: date.flatMap { $0.matchesPrintedDate(in: todo.dueText) ? $0 : nil },
                              anchor: todo.anchor, box: todo.box)
         }
+        let events = (content.events ?? []).compactMap { event -> PaperEvent? in
+            let title = event.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { return nil }
+            let date = event.date.flatMap(ReminderDay.init(iso:))
+            return PaperEvent(title: title, whenText: event.whenText,
+                              date: date.flatMap { $0.matchesPrintedDate(in: event.whenText, withTime: true) ? $0 : nil },
+                              startTime: event.startTime, endTime: event.endTime, allDay: event.allDay,
+                              anchor: event.anchor, box: event.box)
+        }
         return RecognitionResult(markdown: content.markdown.trimmingCharacters(in: .whitespacesAndNewlines),
-                                 issues: issues, todos: todos, usage: APIUsage(inputTokens: result.usage?.input_tokens,
+                                 issues: issues, todos: todos, events: events, usage: APIUsage(inputTokens: result.usage?.input_tokens,
                                                                 outputTokens: result.usage?.output_tokens))
     }
 }

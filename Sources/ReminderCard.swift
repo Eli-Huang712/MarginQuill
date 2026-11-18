@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ReminderCard: View {
+    @Environment(\.paperAccent) private var accent
     @ObservedObject var workspace: Workspace
     let todo: PaperTodo
     let number: Int
@@ -41,26 +42,26 @@ struct ReminderCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Button(action: locate) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Label("待办 \(number) · 第 \(page) 页", systemImage: "checklist")
+                    Label(L("待办 %@ · 第 %@ 页", number, page), systemImage: "checklist")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(PaperTheme.accent)
+                        .foregroundStyle(accent.color)
                     Text(todo.delivery?.title ?? todo.title)
                         .font(.callout.weight(.medium))
                     if let dueText = todo.dueText, !dueText.isEmpty {
-                        Text("原稿日期 · \(dueText)").font(.caption).foregroundStyle(.secondary)
+                        Text(L("原稿日期 · %@", dueText)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("定位到第 \(page) 张纸稿")
+            .help(L("定位到第 %@ 张纸稿", page))
 
             if let delivery = todo.delivery, delivery.sent {
-                Label("已加入 · \(delivery.listLabel)", systemImage: "checkmark.circle.fill")
+                Label(L("已加入 · %@", delivery.listLabel), systemImage: "checkmark.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(PaperTheme.accent)
-                    .accessibilityLabel("已加入提醒事项 · \(delivery.listLabel)")
+                    .foregroundStyle(accent.color)
+                    .accessibilityLabel(L("已加入提醒事项 · %@", delivery.listLabel))
                 if let deadline = delivery.date?.date {
                     Text(deadline, format: .dateTime.year().month().day())
                         .font(.caption).foregroundStyle(.secondary)
@@ -71,9 +72,9 @@ struct ReminderCard: View {
             }
         }
         .padding(10)
-        .background(selected ? PaperTheme.accent.opacity(0.08) : Color(nsColor: .controlBackgroundColor), in: shape)
+        .background(selected ? accent.color.opacity(0.08) : Color(nsColor: .controlBackgroundColor), in: shape)
         .overlay {
-            shape.strokeBorder(selected ? PaperTheme.accent.opacity(0.58) : PaperTheme.divider)
+            shape.strokeBorder(selected ? accent.color.opacity(0.58) : PaperTheme.divider)
                 .allowsHitTesting(false)
         }
     }
@@ -81,44 +82,44 @@ struct ReminderCard: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("标题").font(.caption).foregroundStyle(.secondary)
-                TextField("待办标题", text: $title)
+                Text(L("标题")).font(.caption).foregroundStyle(.secondary)
+                TextField(L("待办标题"), text: $title)
                     .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("待办标题")
+                    .accessibilityLabel(L("待办标题"))
             }
-            Toggle("设置截止日期", isOn: $hasDate)
+            Toggle(L("设置截止日期"), isOn: $hasDate)
                 .toggleStyle(.checkbox)
             if hasDate {
-                DatePicker("截止日期", selection: $date, displayedComponents: .date)
+                DatePicker(L("截止日期"), selection: $date, displayedComponents: .date)
                     .labelsHidden()
             }
             if !lists.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("提醒列表").font(.caption).foregroundStyle(.secondary)
+                    Text(L("提醒列表")).font(.caption).foregroundStyle(.secondary)
                     HStack(spacing: 5) {
-                        Picker("提醒列表", selection: Binding(get: { selectedList?.id ?? "" },
+                        Picker(L("提醒列表"), selection: Binding(get: { selectedList?.id ?? "" },
                                                              set: { listID = $0 })) {
-                            if selectedList == nil { Text("选择列表").tag("") }
+                            if selectedList == nil { Text(L("选择列表")).tag("") }
                             ForEach(lists) { Text($0.label).tag($0.id) }
                         }
                         .labelsHidden()
-                        .help(selectedList?.label ?? "选择提醒列表")
+                        .help(selectedList?.label ?? L("选择提醒列表"))
                         Button(action: loadLists) { Image(systemName: "arrow.clockwise") }
-                            .help("刷新提醒列表")
-                            .accessibilityLabel("刷新提醒列表")
+                            .help(L("刷新提醒列表"))
+                            .accessibilityLabel(L("刷新提醒列表"))
                             .disabled(loading)
                     }
                 }
-                Button("加入提醒事项", action: add)
+                Button(L("加入提醒事项"), action: add)
                     .buttonStyle(.borderedProminent)
                     .disabled(selectedList == nil || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                               workspace.isWorking || workspace.isAddingReminder || loading)
             } else {
-                Button("选择提醒列表…", action: loadLists)
+                Button(L("选择提醒列表…"), action: loadLists)
                     .disabled(loading)
             }
             if loading {
-                ProgressView().controlSize(.small).accessibilityLabel("正在读取提醒列表")
+                ProgressView().controlSize(.small).accessibilityLabel(L("正在读取提醒列表"))
             }
             if let error {
                 Label(error, systemImage: "exclamationmark.circle")
@@ -136,7 +137,7 @@ struct ReminderCard: View {
             defer { loading = false }
             do {
                 try await workspace.loadReminderLists()
-                if lists.isEmpty { error = "请在提醒事项中创建一个可用列表，再回来重试。" }
+                if lists.isEmpty { error = L("请在提醒事项中创建一个可用列表，再回来重试。") }
             } catch {
                 self.error = error.localizedDescription
             }

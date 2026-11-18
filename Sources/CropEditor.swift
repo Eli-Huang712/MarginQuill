@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct CropEditor: View {
+    @Environment(\.paperAccent) private var accent
     @ObservedObject var workspace: Workspace
     let page: PaperPage
     @Environment(\.dismiss) private var dismiss
@@ -19,21 +20,21 @@ struct CropEditor: View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("调整纸页角点").font(.title2.weight(.semibold))
-                    Text("拖动四角，让边线贴合纸张。")
+                    Text(L("调整纸页角点")).font(.title2.weight(.semibold))
+                    Text(L("拖动四角，让边线贴合纸张。"))
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if !candidates.isEmpty {
-                    Menu("纸边候选") {
+                    Menu(L("纸边候选")) {
                         ForEach(candidates.indices, id: \.self) { index in
-                            Button("候选 \(index + 1)") { corners = candidates[index] }
+                            Button(L("候选 %@", index + 1)) { corners = candidates[index] }
                         }
                     }
                     .disabled(workspace.isPreparing)
                 }
                 Button(action: redetect) {
-                    Label("重新检测", systemImage: "arrow.clockwise")
+                    Label(L("重新检测"), systemImage: "arrow.clockwise")
                 }.disabled(workspace.isPreparing)
             }
             canvas
@@ -44,20 +45,20 @@ struct CropEditor: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
-                Toggle("轻增强", isOn: $enhanced).toggleStyle(.checkbox)
+                Toggle(L("轻增强"), isOn: $enhanced).toggleStyle(.checkbox)
                     .disabled(workspace.isPreparing)
-                Button("使用整张") { apply(.entirePage) }.disabled(workspace.isPreparing)
+                Button(L("使用整张")) { apply(.entirePage) }.disabled(workspace.isPreparing)
                 Spacer()
                 if workspace.isPreparing { ProgressView().controlSize(.small) }
-                Button("取消", role: .cancel) { dismiss() }.disabled(workspace.isPreparing)
-                Button("应用裁切") { apply(.manual(corners)) }
+                Button(L("取消"), role: .cancel) { dismiss() }.disabled(workspace.isPreparing)
+                Button(L("应用裁切")) { apply(.manual(corners)) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(workspace.isPreparing)
             }
         }
         .padding(22)
-        .tint(PaperTheme.accent)
+        .tint(accent.color)
         .interactiveDismissDisabled(workspace.isPreparing)
     }
 
@@ -88,19 +89,19 @@ struct CropEditor: View {
                         path.addLines(screenPoints)
                         path.closeSubpath()
                     }
-                    .stroke(PaperTheme.accent, lineWidth: 2)
+                    .stroke(accent.color, lineWidth: 2)
                     .allowsHitTesting(false)
 
                     ForEach(corners.indices, id: \.self) { index in
                         Circle()
-                            .fill(PaperTheme.accent)
+                            .fill(accent.color)
                             .overlay { Circle().strokeBorder(.white, lineWidth: 2) }
                             .frame(width: 18, height: 18)
                             .frame(width: 34, height: 34)
                             .contentShape(Rectangle())
                             .position(screenPoints[index])
                             .shadow(color: .black.opacity(0.20), radius: 3)
-                            .accessibilityLabel(["左上角", "右上角", "右下角", "左下角"][index])
+                            .accessibilityLabel([L("左上角"), L("右上角"), L("右下角"), L("左下角")][index])
                             .accessibilityValue("\(Int(corners[index].x * 100))%, \(Int(corners[index].y * 100))%")
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("cropCanvas"))
                                 .onChanged { value in

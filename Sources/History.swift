@@ -63,6 +63,7 @@ struct NoteRecord: Codable, Identifiable {
         var markdown: String?
         var issues: [ReviewItem] = []
         var todos: [PaperTodo]?
+        var events: [PaperEvent]?
         var error: String?
         var usage: APIUsage?
 
@@ -95,7 +96,7 @@ struct NoteRecord: Codable, Identifiable {
                     .trimmingCharacters(in: CharacterSet(charactersIn: "#* ").union(.whitespaces))
             }
             .first { !$0.isEmpty && !$0.hasPrefix("`") }
-        let fallback = pages.first?.name ?? "纸稿"
+        let fallback = pages.first?.name ?? L("纸稿")
         return String((first ?? fallback).prefix(52))
     }
 
