@@ -1,0 +1,15 @@
+.DS_Store
+._*
+/build/
+/outputs/
+node_modules/
+__pycache__/
+*.pyc
+*.app/
+*.xcuserstate
+xcuserdata/
+.env
+.env.*
+*.pem
+*.p12
+*.key

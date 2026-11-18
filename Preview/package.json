@@ -1,0 +1,15 @@
+{
+  "name": "paper-notes-preview",
+  "private": true,
+  "scripts": {
+    "build": "esbuild preview.js --bundle --minify --target=safari17 --legal-comments=eof --outfile=../Resources/preview.bundle.js"
+  },
+  "dependencies": {
+    "dompurify": "3.4.18",
+    "markdown-it": "15.0.3",
+    "mermaid": "12.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

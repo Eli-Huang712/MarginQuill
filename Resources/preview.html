@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src file: 'self'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<style>
+  :root {
+    color-scheme: light;
+    --text: #242230; --muted: #6d6679; --paper: #ffffff; --line: #e7e1ef;
+    --soft: #f8f6fc; --accent: #6346c8;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --text: #f0edf6; --muted: #afa7bc; --paper: #1e1d24; --line: #3c344d;
+    --soft: #292436; --accent: #b7a5ff;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--paper); }
+  body { margin: 0; color: var(--text); font: 16px/1.72 -apple-system, BlinkMacSystemFont, sans-serif; }
+  main { padding: 34px clamp(22px, 7%, 64px) 64px; max-width: 960px; margin: auto; overflow-wrap: anywhere; }
+  section + section { margin-top: 28px; }
+  h1, h2, h3, h4, h5, h6 { line-height: 1.35; letter-spacing: -.015em; margin: 1.4em 0 .55em; }
+  h1 { font-size: 27px; } h2 { font-size: 22px; } h3 { font-size: 18px; }
+  section > :first-child { margin-top: 0; }
+  p, ul, ol { margin: .6em 0 1em; }
+  ul, ol { padding-left: 1.45em; }
+  u { text-decoration-color: var(--accent); text-decoration-thickness: 1.5px; text-underline-offset: .19em; }
+  a { color: var(--accent); }
+  blockquote { margin: .8em 0; padding: .2em 0 .2em 1em; color: var(--muted); border-left: 3px solid var(--line); }
+  pre, figure { margin: 1.15em 0; padding: 16px; background: var(--soft); border: 1px solid var(--line); border-radius: 11px; overflow-x: auto; }
+  code { font: .89em/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  :not(pre) > code { padding: .12em .28em; background: var(--soft); border-radius: 4px; }
+  figure { text-align: center; position: relative; }
+  figure svg { max-width: 100%; height: auto; vertical-align: middle; }
+  .review-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.38em; height: 1.38em; padding: 0 .31em; margin: 0 .2em;
+    vertical-align: .18em; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--soft); color: var(--accent); cursor: pointer; user-select: none;
+    font: 650 .72em/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .review-badge:hover, .review-badge:focus-visible { border-color: var(--accent); }
+  .review-badge.active { border-color: var(--accent); background: var(--accent); color: var(--paper); }
+  .review-figure-pins { display: flex; gap: 4px; position: absolute; inset: 10px 10px auto auto; }
+  .review-gutter { text-align: right; margin: -.25em 0 .6em; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid var(--line); padding: .44em .6em; }
+  th { background: var(--soft); }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 1.5em 0; }
+</style>
+</head>
+<body><main aria-label="Markdown 预览"></main><script src="preview.bundle.js"></script></body>
+</html>
