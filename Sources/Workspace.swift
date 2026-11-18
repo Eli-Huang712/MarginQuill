@@ -29,19 +29,22 @@ final class Workspace: ObservableObject {
     private let client: RecognitionClient
     private let reminders: any ReminderService
     private let calendar: any CalendarService
+    private let keyFile: APIKeyFile
     private let loadKey: () -> String?
     private var recognition: Task<Void, Never>?
     private var requestID: UUID?
 
     init(library: NoteLibrary = .local, client: RecognitionClient = RecognitionClient(),
-         loadKey: @escaping () -> String? = Keychain.load, reminders: (any ReminderService)? = nil,
-         calendar: (any CalendarService)? = nil) {
+         loadKey: (() -> String?)? = nil, reminders: (any ReminderService)? = nil,
+         calendar: (any CalendarService)? = nil, keyFile: APIKeyFile = .local) {
         self.library = library
         self.client = client
         self.reminders = reminders ?? AppleReminders()
         self.calendar = calendar ?? AppleCalendar()
-        self.loadKey = loadKey
-        hasKey = loadKey() != nil
+        self.keyFile = keyFile
+        let keyLoader = loadKey ?? keyFile.load
+        self.loadKey = keyLoader
+        hasKey = keyLoader() != nil
         do { history = try library.list() }
         catch { self.error = L("部分历史记录无法载入。%@", error.localizedDescription) }
     }
@@ -84,15 +87,20 @@ final class Workspace: ObservableObject {
     }
 
     @discardableResult
-    func load(data: Data, name: String) -> Bool {
+    func load(captures: [(data: Data, name: String)]) -> Bool {
         guard !isWorking else { return false }
-        do {
-            append(try ImportedPage.decode(data, name: name))
-            return true
-        } catch {
-            self.error = error.localizedDescription
-            return false
+        var imported: [ImportedPage] = []
+        var failures: [String] = []
+        for capture in captures {
+            do {
+                imported += try ImportedPage.decode(capture.data, name: capture.name)
+            } catch {
+                failures.append(error.localizedDescription)
+            }
         }
+        append(imported)
+        if let firstFailure = failures.first { error = firstFailure }
+        return !imported.isEmpty
     }
 
     private func append(_ imports: [ImportedPage]) {
@@ -209,7 +217,9 @@ final class Workspace: ObservableObject {
 
     func recognize() {
         guard !isWorking, !pages.isEmpty else { return }
-        guard let key = loadKey(), !key.isEmpty else {
+        let savedKey = loadKey()
+        hasKey = savedKey != nil
+        guard let key = savedKey, !key.isEmpty else {
             settingsSection = .recognition
             showingSettings = true
             return
@@ -520,14 +530,16 @@ final class Workspace: ObservableObject {
     }
 
     func storeKey(_ raw: String) throws {
-        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { throw AppFailure.message(L("请输入 API 密钥。")) }
-        try Keychain.save(key)
+        try keyFile.save(raw)
         hasKey = true
     }
 
     func deleteKey() throws {
-        try Keychain.remove()
+        try keyFile.remove()
         hasKey = false
+    }
+
+    func migrateKeyFromKeychain() throws {
+        try storeKey(LegacyAPIKey.readForMigration())
     }
 }

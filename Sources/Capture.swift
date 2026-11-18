@@ -36,26 +36,30 @@ final class CaptureButton: NSButton, @preconcurrency NSServicesMenuRequestor {
     }
 
     func readSelection(from pasteboard: NSPasteboard) -> Bool {
+        let captures = (pasteboard.pasteboardItems ?? []).compactMap(capture)
+        if !captures.isEmpty { return workspace.load(captures: captures) }
+
         if let data = pasteboard.data(forType: .pdf) {
-            return workspace.load(data: data, name: L("iPhone 扫描"))
+            return workspace.load(captures: [(data, L("iPhone 扫描"))])
+        }
+        if let image = NSImage(pasteboard: pasteboard), let data = image.tiffRepresentation {
+            return workspace.load(captures: [(data, L("iPhone 拍摄"))])
+        }
+        return false
+    }
+
+    private func capture(_ item: NSPasteboardItem) -> (data: Data, name: String)? {
+        if let data = item.data(forType: .pdf) { return (data, L("iPhone 扫描")) }
+        if let rawURL = item.string(forType: .fileURL), let url = URL(string: rawURL),
+           url.isFileURL, let data = try? Data(contentsOf: url) {
+            return (data, L("iPhone 导入"))
         }
         let types: [NSPasteboard.PasteboardType] = [
             .png, .init(UTType.jpeg.identifier), .init(UTType.heic.identifier), .tiff
         ]
-        for type in types {
-            if let data = pasteboard.data(forType: type) {
-                return workspace.load(data: data, name: L("iPhone 拍摄"))
-            }
-        }
-        if let url = (pasteboard.readObjects(forClasses: [NSURL.self],
-                                            options: [.urlReadingFileURLsOnly: true]) as? [URL])?.first,
-           let data = try? Data(contentsOf: url) {
-            return workspace.load(data: data, name: L("iPhone 导入"))
-        }
-        if let image = NSImage(pasteboard: pasteboard), let data = image.tiffRepresentation {
-            return workspace.load(data: data, name: L("iPhone 拍摄"))
-        }
-        return false
+        let otherImages = item.types.filter { !types.contains($0) && NSImage.imageTypes.contains($0.rawValue) }
+        guard let data = (types + otherImages).lazy.compactMap({ item.data(forType: $0) }).first else { return nil }
+        return (data, L("iPhone 拍摄"))
     }
 
     @objc private func showCaptureMenu() {

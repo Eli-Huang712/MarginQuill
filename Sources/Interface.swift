@@ -16,6 +16,7 @@ struct WorkspaceView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(PreferenceKey.appearance) private var appearance = AppAppearance.system
     @AppStorage(PreferenceKey.accent) private var accent = AppAccent.purple
+    @AppStorage(PreferenceKey.tokenUsage) private var showsTokenUsage = true
     @AppStorage("showsReviewSidebar") private var showingReview = true
     @State private var sidebarSection = SidebarSection.review
     @State private var cropPage: PaperPage?
@@ -252,8 +253,12 @@ struct WorkspaceView: View {
                         .font(.system(size: 37, weight: .light)).foregroundStyle(accent.color)
                         .accessibilityHidden(true)
                     Text(L("拖入纸稿")).font(.subheadline.weight(.medium))
-                    Text(L("可一次导入多张照片"))
+                    Text(L("支持多张照片和多页 PDF"))
                         .font(.caption).foregroundStyle(.secondary)
+                    Text(L("用 iPhone 连扫多页时，选择「扫描文稿」。"))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -648,8 +653,14 @@ struct WorkspaceView: View {
                 Text(workspace.notice).lineLimit(1)
             }
             Spacer()
-            if let usage = workspace.record?.usage, let input = usage.inputTokens, let output = usage.outputTokens {
-                Text(L("输入 %@ · 输出 %@ tokens", input.formatted(), output.formatted())).monospacedDigit()
+            if showsTokenUsage, let usage = workspace.record?.usage, let input = usage.inputTokens,
+               let output = usage.outputTokens {
+                let total = L("共 %@ tokens", (input + output).formatted())
+                let breakdown = L("输入 %@ · 输出 %@ tokens", input.formatted(), output.formatted())
+                Text(total)
+                    .monospacedDigit()
+                    .help(breakdown)
+                    .accessibilityLabel(total + " · " + breakdown)
             }
         }
         .font(.caption)

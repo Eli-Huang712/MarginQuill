@@ -103,9 +103,10 @@ struct NoteRecord: Codable, Identifiable {
     var completedCount: Int { pages.filter { $0.markdown != nil }.count }
     var usage: APIUsage? {
         let usages = pages.compactMap(\.usage)
-        guard !usages.isEmpty else { return nil }
-        return APIUsage(inputTokens: usages.compactMap(\.inputTokens).reduce(0, +),
-                        outputTokens: usages.compactMap(\.outputTokens).reduce(0, +))
+        let input = usages.compactMap(\.inputTokens)
+        let output = usages.compactMap(\.outputTokens)
+        guard !input.isEmpty, !output.isEmpty else { return nil }
+        return APIUsage(inputTokens: input.reduce(0, +), outputTokens: output.reduce(0, +))
     }
 }
 

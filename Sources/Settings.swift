@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(PreferenceKey.appearance) private var appearance = AppAppearance.system
     @AppStorage(PreferenceKey.accent) private var accent = AppAccent.purple
     @AppStorage(PreferenceKey.model) private var defaultModel = RecognitionModel.terra
+    @AppStorage(PreferenceKey.tokenUsage) private var showsTokenUsage = true
     @State private var key = ""
     @State private var keyMessage: String?
     @State private var keyFailed = false
@@ -98,20 +99,31 @@ struct SettingsView: View {
         case .recognition:
             Section("OpenAI API") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label(workspace.hasKey ? L("密钥已存入钥匙串") : L("尚未设置密钥"),
+                    Label(workspace.hasKey ? L("密钥已保存到本机") : L("尚未设置密钥"),
                           systemImage: workspace.hasKey ? "checkmark.circle" : "key")
                         .foregroundStyle(.secondary)
                     SecureField(L("OpenAI API 密钥"), text: $key)
                         .textFieldStyle(.roundedBorder)
                     HStack {
                         if workspace.hasKey {
-                            Button(L("移除密钥"), role: .destructive) { updateKey(remove: true) }
+                            Button(L("移除密钥"), role: .destructive) {
+                                updateKey(L("密钥已移除")) { try workspace.deleteKey() }
+                            }
+                        } else {
+                            Button(L("从钥匙串迁移…")) {
+                                updateKey(L("密钥已迁移到本机")) { try workspace.migrateKeyFromKeychain() }
+                            }
+                            .help(L("从旧版钥匙串复制密钥，可能需要验证一次。"))
                         }
                         Spacer()
-                        Button(L("保存密钥")) { updateKey(remove: false) }
+                        Button(L("保存密钥")) {
+                            updateKey(L("密钥已保存")) { try workspace.storeKey(key) }
+                        }
                             .buttonStyle(.borderedProminent)
                             .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
+                    Text(L("本地 .env 文件仅当前账户可读写。"))
+                        .font(.caption).foregroundStyle(.secondary)
                     if let keyMessage {
                         Text(keyMessage).font(.caption)
                             .foregroundStyle(keyFailed ? Color.red : Color.secondary)
@@ -129,6 +141,9 @@ struct SettingsView: View {
                 }
                 Text(L("用于新建笔记。已有记录保留原来的模型。"))
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            Section(L("用量")) {
+                Toggle(L("在状态栏显示 Token 用量"), isOn: $showsTokenUsage)
             }
         case .integrations:
             Section(L("苹果系统服务")) {
@@ -162,12 +177,12 @@ struct SettingsView: View {
         }
     }
 
-    private func updateKey(remove: Bool) {
+    private func updateKey(_ success: String, perform: () throws -> Void) {
         do {
-            if remove { try workspace.deleteKey() } else { try workspace.storeKey(key) }
+            try perform()
             key = ""
             keyFailed = false
-            keyMessage = L(remove ? "密钥已移除" : "密钥已保存")
+            keyMessage = success
         } catch {
             keyFailed = true
             keyMessage = error.localizedDescription

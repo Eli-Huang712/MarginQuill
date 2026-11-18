@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 enum RecognitionModel: String, CaseIterable, Identifiable, Codable, Sendable {
     case terra = "gpt-6.1-terra"
@@ -18,42 +17,6 @@ enum AppFailure: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .message(let message): return message
-        }
-    }
-}
-
-enum Keychain {
-    private static let query: [String: Any] = [
-        kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "com.paperfolio.paper-notes",
-        kSecAttrAccount as String: "openai"
-    ]
-
-    static func load() -> String? {
-        var lookup = query
-        lookup[kSecReturnData as String] = true
-        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(lookup as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    static func save(_ key: String) throws {
-        let secret = [kSecValueData as String: Data(key.utf8)]
-        var status = SecItemUpdate(query as CFDictionary, secret as CFDictionary)
-        if status == errSecItemNotFound {
-            status = SecItemAdd(query.merging(secret) { _, new in new } as CFDictionary, nil)
-        }
-        if status != errSecSuccess {
-            throw AppFailure.message(L("无法保存到钥匙串（%@）。", status))
-        }
-    }
-
-    static func remove() throws {
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw AppFailure.message(L("无法删除钥匙串中的密钥（%@）。", status))
         }
     }
 }
