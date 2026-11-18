@@ -7,6 +7,7 @@ struct CropEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var corners: [PagePoint]
     @State private var enhanced: Bool
+    @State private var trim = true
     @State private var error: String?
 
     init(workspace: Workspace, page: PaperPage) {
@@ -46,6 +47,8 @@ struct CropEditor: View {
             }
             HStack(spacing: 12) {
                 Toggle(L("轻增强"), isOn: $enhanced).toggleStyle(.checkbox)
+                    .disabled(workspace.isPreparing)
+                Toggle(L("裁外围留白"), isOn: $trim).toggleStyle(.checkbox)
                     .disabled(workspace.isPreparing)
                 Button(L("使用整张")) { apply(.entirePage) }.disabled(workspace.isPreparing)
                 Spacer()
@@ -139,7 +142,7 @@ struct CropEditor: View {
     private func apply(_ crop: PhotoPreprocessor.Crop) {
         error = nil
         Task {
-            if await workspace.processPage(page.id, crop: crop, enhance: enhanced) {
+            if await workspace.processPage(page.id, crop: crop, enhance: enhanced, trim: trim) {
                 dismiss()
             } else {
                 error = workspace.error

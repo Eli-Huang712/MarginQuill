@@ -8,6 +8,7 @@ struct PaperPage: Identifiable {
     var automaticCorners: [PagePoint]?
     var cornerSuggestions: [[PagePoint]] = []
     var appliedCorners: [PagePoint]?
+    var trimBounds: MarginBounds?
     var enhanced = false
 
     let originalImage: NSImage?
@@ -59,6 +60,7 @@ struct NoteRecord: Codable, Identifiable {
         let automaticCorners: [PagePoint]?
         let cornerSuggestions: [[PagePoint]]?
         let appliedCorners: [PagePoint]?
+        let trimBounds: MarginBounds?
         let enhanced: Bool
         var markdown: String?
         var issues: [ReviewItem] = []
@@ -75,6 +77,7 @@ struct NoteRecord: Codable, Identifiable {
             automaticCorners = page.automaticCorners
             cornerSuggestions = page.cornerSuggestions.isEmpty ? nil : page.cornerSuggestions
             appliedCorners = page.appliedCorners
+            trimBounds = page.trimBounds
             enhanced = page.enhanced
         }
     }
@@ -157,6 +160,7 @@ struct NoteLibrary {
         item.automaticCorners = page.automaticCorners
         item.cornerSuggestions = page.cornerSuggestions ?? []
         item.appliedCorners = page.appliedCorners
+        item.trimBounds = page.trimBounds
         item.enhanced = page.enhanced
         return item
     }

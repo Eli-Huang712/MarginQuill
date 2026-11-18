@@ -139,7 +139,7 @@ struct WorkspaceView: View {
                         Text(page.source.name).font(.caption).lineLimit(1).truncationMode(.middle)
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 5)
-                        Text(inspectOriginal ? L("原图") : (page.appliedCorners == nil ? L("完整画面") : L("裁正后")))
+                        Text(pageImageLabel(page))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -150,6 +150,12 @@ struct WorkspaceView: View {
             .padding(.top, 9)
         }
         .background(PaperTheme.surface)
+    }
+
+    private func pageImageLabel(_ page: PaperPage) -> String {
+        if inspectOriginal { return L("原图") }
+        if page.trimBounds != nil { return L("已裁外围留白") }
+        return page.appliedCorners == nil ? L("完整画面") : L("裁正后")
     }
 
     private var pageStrip: some View {

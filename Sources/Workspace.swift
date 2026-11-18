@@ -109,25 +109,30 @@ final class Workspace: ObservableObject {
         pages += newPages
         selectedPageID = newPages.first?.id
         imagesChanged = true
-        let jobs = newPages.map { ($0.id, $0.source) }
         isPreparing = true
         error = nil
+        notice = L("正在预处理 %@ 页…", newPages.count)
         Task {
             defer { isPreparing = false }
-            var failed = 0
-            for (index, job) in jobs.enumerated() {
-                notice = L("正在预处理 %@/%@ 页…", index + 1, jobs.count)
-                do {
-                    let output = try await Task.detached(priority: .userInitiated) {
-                        try await PhotoPreprocessor.run(job.1)
-                    }.value
-                    updatePage(id: job.0, output: output, crop: .automatic, enhanced: false)
-                } catch {
-                    failed += 1
-                    self.error = error.localizedDescription
+            do {
+                let results = try await Task.detached(priority: .userInitiated) {
+                    try await PhotoPreprocessor.runBatch(imports)
+                }.value
+                var failed = 0
+                for (page, result) in zip(newPages, results) {
+                    switch result {
+                    case .success(let output):
+                        updatePage(id: page.id, output: output, crop: .automatic, enhanced: false)
+                    case .failure(let error):
+                        failed += 1
+                        self.error = error.localizedDescription
+                    }
                 }
+                notice = failed == 0 ? L("已导入 %@ 页", newPages.count) : L("%@ 页使用原图", failed)
+            } catch {
+                notice = L("%@ 页使用原图", newPages.count)
+                self.error = error.localizedDescription
             }
-            notice = failed == 0 ? L("已导入 %@ 页", newPages.count) : L("%@ 页使用原图", failed)
         }
     }
 
@@ -155,7 +160,7 @@ final class Workspace: ObservableObject {
         imagesChanged = true
     }
 
-    func processPage(_ id: UUID, crop: PhotoPreprocessor.Crop, enhance: Bool) async -> Bool {
+    func processPage(_ id: UUID, crop: PhotoPreprocessor.Crop, enhance: Bool, trim: Bool = true) async -> Bool {
         guard !isWorking, let page = pages.first(where: { $0.id == id }) else { return false }
         isPreparing = true
         defer { isPreparing = false }
@@ -163,11 +168,15 @@ final class Workspace: ObservableObject {
         notice = L("正在裁正纸稿…")
         do {
             let output = try await Task.detached(priority: .userInitiated) {
-                try await PhotoPreprocessor.run(page.source, crop: crop, enhance: enhance)
+                try await PhotoPreprocessor.run(page.source, crop: crop, enhance: enhance, trim: trim)
             }.value
             updatePage(id: id, output: output, crop: crop, enhanced: enhance)
             imagesChanged = true
-            notice = output.corners == nil ? L("使用完整纸页") : L("已应用角点")
+            if output.trimBounds != nil {
+                notice = L("已裁外围留白")
+            } else {
+                notice = output.corners == nil ? L("使用完整纸页") : L("已应用角点")
+            }
             return true
         } catch {
             notice = ""
@@ -183,8 +192,9 @@ final class Workspace: ObservableObject {
             pages[index].cornerSuggestions = output.suggestions
         }
         pages[index].appliedCorners = output.corners
+        pages[index].trimBounds = output.trimBounds
         pages[index].enhanced = enhanced
-        if output.corners == nil, !enhanced {
+        if output.corners == nil, output.trimBounds == nil, !enhanced {
             pages[index].preparedPNG = nil
             pages[index].preparedImage = nil
         } else {
@@ -202,7 +212,7 @@ final class Workspace: ObservableObject {
         do {
             let source = ImportedPage(originalPNG: page.source.originalPNG, name: page.source.name, isScan: false)
             let detection = try await Task.detached(priority: .userInitiated) {
-                try await PhotoPreprocessor.run(source)
+                try await PhotoPreprocessor.run(source, trim: false, detectOnly: true)
             }.value
             guard let index = pages.firstIndex(where: { $0.id == id }) else { return false }
             pages[index].automaticCorners = detection.corners
@@ -446,7 +456,8 @@ final class Workspace: ObservableObject {
         guard let record, let saved = record.pages.first(where: { $0.id == id }) else { return nil }
         if let page = pages.first(where: { $0.id == id }),
            saved.hasPreparedImage == (page.preparedPNG != nil),
-           saved.appliedCorners == page.appliedCorners, saved.enhanced == page.enhanced {
+           saved.appliedCorners == page.appliedCorners, saved.trimBounds == page.trimBounds,
+           saved.enhanced == page.enhanced {
             return page.image
         }
         return (try? library.reopenPage(saved, in: record.id))?.image

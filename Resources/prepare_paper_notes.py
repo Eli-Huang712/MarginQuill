@@ -158,7 +158,7 @@ def find_pages(rgb, seeds=()):
     return best, choices
 
 
-def rectify(rgb, corners):
+def rectify(rgb, corners, *, with_margin=False):
     top_left, top_right, bottom_right, bottom_left = corners
     width = round(max(np.linalg.norm(top_right - top_left),
                       np.linalg.norm(bottom_right - bottom_left))) + 1
@@ -167,8 +167,9 @@ def rectify(rgb, corners):
     margin = max(3, round(min(width, height) * 0.01))
     target = np.float32([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]])
     transform = cv2.getPerspectiveTransform(corners, target + margin)
-    return cv2.warpPerspective(rgb, transform, (width + 2 * margin, height + 2 * margin),
+    page = cv2.warpPerspective(rgb, transform, (width + 2 * margin, height + 2 * margin),
                                flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    return (page, margin) if with_margin else page
 
 
 def boost_contrast(rgb):
@@ -178,8 +179,35 @@ def boost_contrast(rgb):
     return cv2.cvtColor(cv2.merge((blended, a, b)), cv2.COLOR_LAB2RGB)
 
 
+def blank_margin_bounds(rgb):
+    """Find substantial, uniform light margins while leaving room around every mark."""
+    height, width = rgb.shape[:2]
+    sample = max(4, round(min(height, width) * 0.025))
+    corners = np.concatenate([
+        rgb[:sample, :sample].reshape(-1, 3), rgb[:sample, -sample:].reshape(-1, 3),
+        rgb[-sample:, :sample].reshape(-1, 3), rgb[-sample:, -sample:].reshape(-1, 3),
+    ])
+    paper = np.rint(np.median(corners, axis=0)).astype(int)
+    if paper.min() < 210 or np.ptp(paper) > 32:
+        return None
+
+    lower = tuple(int(value) for value in np.maximum(paper - 3, 0))
+    upper = tuple(int(value) for value in np.minimum(paper + 3, 255))
+    marks = cv2.bitwise_not(cv2.inRange(rgb, lower, upper))
+    if cv2.countNonZero(marks) < 12:
+        return None
+    x, y, content_width, content_height = cv2.boundingRect(marks)
+    padding = max(18, round(min(height, width) * 0.035))
+    left, top = max(0, x - padding), max(0, y - padding)
+    right = min(width, x + content_width + padding)
+    bottom = min(height, y + content_height + padding)
+    if (right - left) * (bottom - top) > 0.88 * width * height:
+        return None
+    return {"left": left, "top": top, "right": right, "bottom": bottom}
+
+
 def prepare(source, straighten=True, enhance=False, manual_corners=None, *, with_corners=False,
-            with_report=False, vision_seeds=()):
+            with_report=False, vision_seeds=(), trim=False, detect_only=False):
     register_heif_opener()
     with Image.open(source) as original:
         rgb = np.array(ImageOps.exif_transpose(original).convert("RGB"))
@@ -200,23 +228,60 @@ def prepare(source, straighten=True, enhance=False, manual_corners=None, *, with
     elif straighten:
         corners, choices = find_pages(rgb, vision_seeds)
     corner_report = (np.clip(corners / scale, 0, 1).tolist() if corners is not None else None)
-    if corners is not None:
-        rgb = rectify(rgb, corners)
-    if enhance:
+    margin = 0
+    if corners is not None and not detect_only:
+        rgb, margin = rectify(rgb, corners, with_margin=True)
+    bounds = None
+    if trim and not detect_only and (corners is not None or not straighten):
+        # Context pixels added by the perspective transform are outside the selected paper.
+        paper = rgb[margin:-margin, margin:-margin] if margin else rgb
+        bounds = blank_margin_bounds(paper)
+        if bounds is not None:
+            bounds = {edge: value + margin for edge, value in bounds.items()}
+            rgb = rgb[bounds["top"]:bounds["bottom"], bounds["left"]:bounds["right"]]
+    if enhance and not detect_only:
         rgb = boost_contrast(rgb)
-    photo = Image.fromarray(rgb)
+    photo = None if detect_only else Image.fromarray(rgb)
     if with_report:
         return photo, {"corners": corner_report,
+                       "trimBounds": bounds,
                        "suggestions": [np.clip(choice / scale, 0, 1).tolist() for choice in choices]}
     return photo, corner_report if with_corners else corners is not None
 
 
+def save_png(photo, output):
+    with output.open("xb") as target:
+        try:
+            photo.save(target, format="PNG")
+        except OSError:
+            target.close()
+            output.unlink(missing_ok=True)
+            raise
+
+
+def prepare_batch(manifest):
+    results = []
+    for job in json.loads(manifest.read_text()):
+        try:
+            photo, report = prepare(Path(job["source"]), straighten=job["straighten"],
+                                    enhance=job["enhance"], manual_corners=job.get("corners"),
+                                    with_report=True, trim=job["trim"], detect_only=job["detectOnly"])
+            if photo is not None and (report["corners"] is not None or report["trimBounds"] or job["enhance"]):
+                save_png(photo, Path(job["output"]))
+            results.append(report)
+        except (OSError, ValueError, cv2.error) as error:
+            results.append({"error": str(error)})
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description="对纸稿照片进行本地裁正，输出彩色 PNG。")
-    parser.add_argument("source", type=Path)
-    parser.add_argument("output", type=Path)
+    parser.add_argument("source", type=Path, nargs="?")
+    parser.add_argument("output", type=Path, nargs="?")
+    parser.add_argument("--batch", type=Path, help="按输入清单批量处理纸稿，输出每页的 JSON 结果")
     parser.add_argument("--no-rectify", action="store_true", help="保留完整画面，适合已扫描的页面")
     parser.add_argument("--enhance", action="store_true", help="轻调局部亮度对比度")
+    parser.add_argument("--trim", action="store_true", help="裁掉明显的外围留白")
     parser.add_argument("--corners", type=float, nargs=8,
                         help="左上、右上、右下、左下的归一化 x y 坐标")
     parser.add_argument("--report", action="store_true", help="输出归一化角点 JSON")
@@ -224,6 +289,17 @@ def main():
     parser.add_argument("--crop", type=int, nargs=4, metavar=("L", "T", "R", "B"),
                         help="在裁正后的页面中按像素坐标裁取局部")
     args = parser.parse_args()
+    if args.batch:
+        if args.source or args.output:
+            parser.error("--batch 不能与单张输入和输出同时使用。")
+        try:
+            print(json.dumps(prepare_batch(args.batch)))
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            print(error, file=sys.stderr)
+            return 1
+        return 0
+    if args.source is None or args.output is None:
+        parser.error("单张处理需要指定输入和输出文件。")
     if args.output.suffix.lower() != ".png":
         parser.error("输出文件需要使用 .png 后缀。")
     if args.output.exists():
@@ -233,19 +309,13 @@ def main():
     try:
         seeds = json.loads(args.vision_seeds.read_text()) if args.vision_seeds else ()
         photo, report = prepare(args.source, not args.no_rectify, args.enhance, args.corners,
-                                with_report=True, vision_seeds=seeds)
+                                with_report=True, vision_seeds=seeds, trim=args.trim)
         if args.crop:
             left, top, right, bottom = args.crop
             if not (0 <= left < right <= photo.width and 0 <= top < bottom <= photo.height):
                 raise ValueError("局部裁剪坐标超出了页面范围。")
             photo = photo.crop(tuple(args.crop))
-        with args.output.open("xb") as target:
-            try:
-                photo.save(target, format="PNG")
-            except OSError:
-                target.close()
-                args.output.unlink(missing_ok=True)
-                raise
+        save_png(photo, args.output)
     except (OSError, ValueError, cv2.error) as error:
         print(error, file=sys.stderr)
         return 1
@@ -253,7 +323,8 @@ def main():
     if args.report:
         print(json.dumps(report))
     else:
-        print("rectified" if report["corners"] is not None else "full-frame")
+        result = "rectified" if report["corners"] is not None else ("trimmed" if report["trimBounds"] else "full-frame")
+        print(result)
     return 0
 
 

@@ -207,9 +207,12 @@
 "本地预处理失败。%@" = "Local preprocessing failed. %@";
 "部分历史记录无法载入。%@" = "Could not load some history entries. %@";
 "这些文件无法导入：%@" = "Could not import these files: %@";
-"正在预处理 %@/%@ 页…" = "Preparing page %@ of %@…";
+"正在预处理 %@ 页…" = "Preparing %@ pages…";
 "已导入 %@ 页" = "Pages imported: %@";
 "%@ 页使用原图" = "Pages using original images: %@";
+"裁外围留白" = "Trim Blank Margins";
+"已裁外围留白" = "Blank Margins Trimmed";
+"纸稿预处理结果不完整。" = "Some preprocessed pages are missing.";
 "已找到 %@ 个纸边候选" = "Detected %@ page edge options";
 "无法建立历史记录。%@" = "Could not create the history entry. %@";
 "正在识别第 %@/%@ 页…" = "Recognizing page %@ of %@…";
