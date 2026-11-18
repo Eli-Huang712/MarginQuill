@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage(PreferenceKey.accent) private var accent = AppAccent.purple
     @AppStorage(PreferenceKey.model) private var defaultModel = RecognitionModel.terra
     @AppStorage(PreferenceKey.tokenUsage) private var showsTokenUsage = true
+    @AppStorage(PreferenceKey.paddleDirectory) private var paddleDirectory = ""
     @State private var key = ""
     @State private var keyMessage: String?
     @State private var keyFailed = false
@@ -144,6 +145,27 @@ struct SettingsView: View {
             }
             Section(L("用量")) {
                 Toggle(L("在状态栏显示 Token 用量"), isOn: $showsTokenUsage)
+            }
+            Section(L("离线识别")) {
+                let runtime = PaddleRuntime.configured(paddleDirectory)
+                Text(L("Apple Vision 转录文字和表格。准备好版面模型后，PaddleOCR-VL 自动补识别公式和折线图。"))
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Label(runtime == nil ? L("PaddleOCR-VL 尚未配置")
+                          : (runtime?.hasLayout == true ? L("PaddleOCR-VL 自动与框选识别已就绪") : L("PaddleOCR-VL 框选识别已就绪")),
+                          systemImage: runtime == nil ? "folder" : "checkmark.circle")
+                    Spacer()
+                    Button(L("选择模型目录…")) {
+                        if let path = PaddleRuntime.chooseDirectory(paddleDirectory) { paddleDirectory = path }
+                    }
+                }
+                if !paddleDirectory.isEmpty {
+                    Text(paddleDirectory)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle).help(paddleDirectory)
+                }
+                Text(L("目录内应包含 venv 和 paddleocr-vl-1.5-4bit。"))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         case .integrations:
             Section(L("苹果系统服务")) {

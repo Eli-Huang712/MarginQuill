@@ -3,9 +3,16 @@ import Foundation
 enum RecognitionModel: String, CaseIterable, Identifiable, Codable, Sendable {
     case terra = "gpt-6.1-terra"
     case luna = "gpt-6-luna"
+    case offline
 
     var id: String { rawValue }
-    var label: String { self == .terra ? "GPT-6.1 Terra" : "GPT-6 Luna" }
+    var label: String {
+        switch self {
+        case .terra: "GPT-6.1 Terra"
+        case .luna: "GPT-6 Luna"
+        case .offline: L("离线（自动）")
+        }
+    }
     static var preferred: Self {
         UserDefaults.standard.string(forKey: PreferenceKey.model).flatMap(Self.init(rawValue:)) ?? .terra
     }
@@ -91,6 +98,7 @@ struct RecognitionClient {
     }
 
     func makeRequest(png: Data, model: RecognitionModel, key: String, prompt: String) throws -> URLRequest {
+        guard model != .offline else { throw AppFailure.message(L("离线模型只能在本机运行。")) }
         let content: [[String: String]] = [
             ["type": "input_text", "text": prompt],
             ["type": "input_image", "image_url": "data:image/png;base64," + png.base64EncodedString()]

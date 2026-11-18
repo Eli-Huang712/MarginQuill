@@ -8,7 +8,7 @@ The interface supports Simplified Chinese and English. It requires macOS 14 or l
 
 1. 点「导入纸稿 → 从 iPhone 或 iPad 导入 → 扫描文稿」，在手机上连续扫完几页，再点一次「存储」。返回的 PDF 会按页序拆开，并整理进同一份笔记。也可按 `⌘O` 多选本地照片或 PDF。编号缩略图是识别和导出的顺序，可拖动或用左右箭头调整。
 2. 应用在本地用 OpenCV 寻找纸边并校正透视。裁正后的照片和 PDF 扫描页会检查外围留白，只裁明显、连续的空白边并为笔迹留余量。照片边界不明确时保留整张，可在「调整角点」中选候选、拖动四角或关闭留白裁剪。「查看原图」和「使用整张」可查看和恢复完整画面。状态栏显示读取、预处理进度和本机导入用时。多页共用一个预处理进程。
-3. 在「设置 → AI 与识别」保存 OpenAI API 密钥，纸笺会把密钥保存在当前账户的本地 `.env` 中。可以点「从钥匙串迁移…」复制旧版密钥，macOS 此时可能要求验证一次。点「识别 N 页」才会向 OpenAI Responses API 发送图像。正文随识别结果逐步显示，状态栏显示当前阶段和已完成页数。每页完整返回后，根据最终结果保存正文、批注和用量。
+3. 在「设置 → AI 与识别」保存 OpenAI API 密钥，纸笺会把密钥保存在当前账户的本地 `.env` 中。可以点「从钥匙串迁移…」复制旧版密钥，macOS 此时可能要求验证一次。点「识别 N 页」才会启动识别，状态栏显示当前引擎、阶段和已完成页数。模型菜单的「离线（自动）」直接在本机识别。云端请求失败时，当前页和本次剩余页也会切换到离线。Vision 转录文字和表格，版面模型与 PaddleOCR-VL 准备好后会自动补识别公式和折线图。纸笺保留原图，框图箭头可在批注中核对。
 4. 中间默认渲染 Markdown 和 Mermaid，点「还原源码」打开带行号的编辑器。疑点在相关文字或框图旁显示紫色编号。用「待核对」栏右上角的按钮收起栏，文档右上角的「待核对」按钮可重新展开并显示剩余数量。点文中的编号会自动展开右栏，定位到对应说明和纸稿。有坐标时会框出纸稿上的大致位置。核对后可标为已处理。导出只包含正文和 Mermaid 源码。
 5. 标题栏左侧的时钟按钮可展开或收起历史栏，旁边依次是新建和 API 设置。点击记录会恢复原图、裁切设置、识别结果和处理过的疑点。重做完整识别会保存为新记录，不完整的记录可继续识别未完成的页面。可在每条记录的菜单里将它移到废纸篓。
 6. 点正文旁的「待办」标记，对照原稿，确认标题、可选的截止日期和目标列表后点「加入提醒事项」。第一次读取列表时，macOS 会请求提醒事项访问权限。写入 iCloud 提醒列表后，可在启用了提醒事项同步的其他设备上查看。「周五前」或未写年份的日期保留为原文，供你选择具体日期。同一条已加入的待办会在纸笺中显示状态。
@@ -17,6 +17,22 @@ The interface supports Simplified Chinese and English. It requires macOS 14 or l
 9. 按 `⌘,` 打开设置。通用设置界面语言，外观设置显示模式与强调色，AI 与识别设置 API 密钥、默认模型和右下角的 Token 用量开关，集成查看提醒事项和日历的授权状态。修改界面语言后重新打开应用。
 
 历史记录保存在当前用户的 `Library/Application Support/PaperNotes/History`。预处理需要 [uv](https://docs.astral.sh/uv/)，首次运行可能下载 Python 3.12 和图像依赖。连续互通相机需在 Mac 和 iPhone 上使用同一个 Apple 账户，并开启 Wi-Fi 与蓝牙。[Apple 连续互通相机指南](https://support.apple.com/zh-cn/102332)
+
+## 离线局部识别
+
+点纸稿角点按钮旁的「框选局部识别」，在原图上拖出一个区域。公式转成 LaTeX，折线图提取为 Markdown 数据表。核对、编辑后可以复制，或追加到文稿。手绘框图可从待核对批注打开原图。
+
+Apple Vision 随系统提供。macOS 26 及以上支持结构化表格。PaddleOCR-VL 局部识别使用 Apple 芯片上本地安装的 MLX 环境和 4-bit 权重。首次准备好后，推理在设备上完成。下面命令使用纸笺的默认目录。使用其他目录时，在「设置 → AI 与识别 → 离线识别」中选择。
+
+```sh
+offline_dir="$HOME/Library/Application Support/PaperNotes/Offline"
+uv venv --python 3.12 "$offline_dir/venv"
+uv pip install --python "$offline_dir/venv/bin/python" mlx-vlm==0.8.0
+"$offline_dir/venv/bin/hf" download mlx-community/PaddleOCR-VL-1.5-4bit \
+  --local-dir "$offline_dir/paddleocr-vl-1.5-4bit"
+"$offline_dir/venv/bin/hf" download PaddlePaddle/PP-DocLayoutV3_safetensors \
+  --local-dir "$offline_dir/pp-doclayout-v3"
+```
 
 ## 从源码构建
 

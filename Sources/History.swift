@@ -34,6 +34,7 @@ struct ReviewItem: Codable, Identifiable {
     var resolved = false
     var anchor: String? = nil
     var box: ReviewBox? = nil
+    var showsOriginal: Bool? = nil
 }
 
 struct ReviewBox: Codable {
@@ -68,6 +69,12 @@ struct NoteRecord: Codable, Identifiable {
         var events: [PaperEvent]?
         var error: String?
         var usage: APIUsage?
+        var engine: RecognitionEngine?
+        var regions: [String]?
+
+        var documentMarkdown: String {
+            ([markdown ?? ""] + (regions ?? [])).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        }
 
         init(_ page: PaperPage) {
             id = page.id
@@ -84,12 +91,12 @@ struct NoteRecord: Codable, Identifiable {
 
     var id = UUID()
     var created = Date()
-    let model: RecognitionModel
+    var model: RecognitionModel
     var pages: [Page]
     var editedMarkdown: String?
 
     var markdown: String {
-        editedMarkdown ?? pages.compactMap(\.markdown).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        editedMarkdown ?? pages.map(\.documentMarkdown).filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
     var title: String {

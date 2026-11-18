@@ -11,6 +11,7 @@ final class Workspace: ObservableObject {
     @Published private(set) var isRecognizing = false
     @Published private(set) var recognitionProgress: (completed: Int, total: Int)?
     @Published private(set) var streamedPage: PreviewSection?
+    @Published private(set) var activeEngine: RecognitionEngine?
     @Published private(set) var isAddingReminder = false
     @Published private(set) var isAddingEvent = false
     @Published private(set) var availableReminderLists: [ReminderList]?
@@ -243,20 +244,16 @@ final class Workspace: ObservableObject {
         guard !isWorking, !pages.isEmpty else { return }
         let savedKey = loadKey()
         hasKey = savedKey != nil
-        guard let key = savedKey, !key.isEmpty else {
-            settingsSection = .recognition
-            showingSettings = true
-            return
-        }
-        guard let url = Bundle.main.url(forResource: "transcription_prompt", withExtension: "txt"),
-              let prompt = try? String(contentsOf: url, encoding: .utf8) else {
-            error = L("找不到识别提示词。")
-            return
-        }
+        let prompt = Bundle.main.url(forResource: "transcription_prompt", withExtension: "txt")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        let mayUseCloud = model != .offline && savedKey != nil && prompt != nil
+        let paddleDirectory = UserDefaults.standard.string(forKey: PreferenceKey.paddleDirectory) ?? ""
+        let paddle = PaddleRuntime.configured(paddleDirectory)
 
         var target: NoteRecord
-        if canResume, let current = record, current.model == model {
+        if canResume, let current = record, current.model == model || current.completedCount == 0 {
             target = current
+            target.model = model
         } else {
             target = NoteRecord(model: model, pages: pages.map(NoteRecord.Page.init))
             do { try library.create(target, from: pages) }
@@ -275,6 +272,7 @@ final class Workspace: ObservableObject {
         let id = UUID()
         requestID = id
         recognitionProgress = (target.completedCount, target.pages.count)
+        activeEngine = mayUseCloud ? .cloud : .vision
         isRecognizing = true
         imagesChanged = false
         showingSource = false
@@ -287,26 +285,57 @@ final class Workspace: ObservableObject {
                     requestID = nil
                     recognitionProgress = nil
                     streamedPage = nil
+                    activeEngine = nil
                     isRecognizing = false
                 }
             }
             let total = target.pages.count
+            var cloudAvailable = mayUseCloud
             for (index, png) in pending {
+                guard !Task.isCancelled, requestID == id else { return }
                 let pageID = target.pages[index].id.uuidString
                 let pageNumber = index + 1
-                notice = L("正在提交第 %@/%@ 页…", pageNumber, total)
                 do {
-                    let result = try await client.recognize(png: png, model: target.model, key: key, prompt: prompt) { update in
-                        guard self.requestID == id else { return }
-                        switch update {
-                        case .waitingForModel:
-                            self.notice = L("等待识别第 %@/%@ 页…", pageNumber, total)
-                        case .markdown(let markdown):
-                            if self.streamedPage == nil {
-                                self.notice = L("正在输出第 %@/%@ 页…", pageNumber, total)
+                    var cloudResult: RecognitionResult?
+                    if cloudAvailable, let key = savedKey, let prompt {
+                        activeEngine = .cloud
+                        notice = L("正在提交第 %@/%@ 页…", pageNumber, total)
+                        do {
+                            cloudResult = try await client.recognize(png: png, model: target.model, key: key, prompt: prompt) { update in
+                                guard self.requestID == id else { return }
+                                switch update {
+                                case .waitingForModel:
+                                    self.notice = L("等待识别第 %@/%@ 页…", pageNumber, total)
+                                case .markdown(let markdown):
+                                    if self.streamedPage == nil {
+                                        self.notice = L("正在输出第 %@/%@ 页…", pageNumber, total)
+                                    }
+                                    self.streamedPage = PreviewSection(id: pageID, markdown: markdown)
+                                }
                             }
-                            self.streamedPage = PreviewSection(id: pageID, markdown: markdown)
+                        } catch {
+                            guard !Task.isCancelled, requestID == id else { return }
+                            cloudAvailable = false
+                            streamedPage = nil
                         }
+                    }
+                    let result: RecognitionResult
+                    let engine: RecognitionEngine
+                    if let cloudResult {
+                        result = cloudResult
+                        engine = .cloud
+                    } else {
+                        activeEngine = .vision
+                        notice = L("正在使用本机 OCR · 第 %@/%@ 页…", pageNumber, total)
+                        let local = try await VisionRecognition.recognize(png: png)
+                        guard !Task.isCancelled, requestID == id else { return }
+                        var regions: [OfflineRegion] = []
+                        if let paddle, paddle.hasLayout {
+                            activeEngine = .paddle
+                            notice = L("正在分析公式和折线图 · 第 %@/%@ 页…", pageNumber, total)
+                            regions = (try? await PaddleRecognition.recognizeLayout(png: png, runtime: paddle)) ?? []
+                        }
+                        (result, engine) = local.render(with: regions)
                     }
                     guard !Task.isCancelled, requestID == id else { return }
                     notice = L("正在保存第 %@/%@ 页…", pageNumber, total)
@@ -315,6 +344,7 @@ final class Workspace: ObservableObject {
                     target.pages[index].todos = result.todos
                     target.pages[index].events = result.events
                     target.pages[index].usage = result.usage
+                    target.pages[index].engine = engine
                     target.pages[index].error = nil
                 } catch {
                     guard !Task.isCancelled, requestID == id else { return }
@@ -327,7 +357,9 @@ final class Workspace: ObservableObject {
                 streamedPage = nil
                 recognitionProgress = (target.completedCount, total)
             }
-            notice = L("已按顺序整理 %@ 页", target.completedCount)
+            let local = target.pages.filter { $0.engine == .vision || $0.engine == .visionAndPaddle }.count
+            notice = local == 0 ? L("已按顺序整理 %@ 页", target.completedCount)
+                : L("已整理 %@ 页 · 本机识别 %@ 页", target.completedCount, local)
         }
     }
 
@@ -337,8 +369,58 @@ final class Workspace: ObservableObject {
         requestID = nil
         recognitionProgress = nil
         streamedPage = nil
+        activeEngine = nil
         isRecognizing = false
         notice = L("已停止等待，已完成的页面已保存")
+    }
+
+    func recognizeRegion(page: PaperPage, region: CGRect, kind: RegionRecognitionKind,
+                         runtime: PaddleRuntime) async throws -> String {
+        guard !isWorking, pages.contains(where: { $0.id == page.id }) else {
+            throw AppFailure.message(L("纸稿正在处理或已切换，请稍后再试。"))
+        }
+        activeEngine = .paddle
+        isPreparing = true
+        notice = L("正在识别所选区域…")
+        error = nil
+        defer {
+            activeEngine = nil
+            isPreparing = false
+        }
+        do {
+            let markdown = try await PaddleRecognition.recognize(
+                png: page.source.originalPNG, region: region, kind: kind, runtime: runtime
+            )
+            notice = L("PaddleOCR-VL 已识别所选区域")
+            return markdown
+        } catch {
+            notice = L("局部识别未完成")
+            throw error
+        }
+    }
+
+    func addRegion(_ markdown: String, to pageID: UUID) throws {
+        guard !isWorking, pages.contains(where: { $0.id == pageID }) else {
+            throw AppFailure.message(L("纸稿正在处理或已切换，请稍后再试。"))
+        }
+        if var updated = record, let index = updated.pages.firstIndex(where: { $0.id == pageID }) {
+            if let edited = updated.editedMarkdown {
+                updated.editedMarkdown = [edited, markdown].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            } else {
+                updated.pages[index].regions = (updated.pages[index].regions ?? []) + [markdown]
+            }
+            try library.save(updated)
+            updateRecord(updated)
+        } else {
+            var draft = NoteRecord(model: model, pages: pages.map(NoteRecord.Page.init))
+            guard let index = draft.pages.firstIndex(where: { $0.id == pageID }) else { return }
+            draft.pages[index].regions = [markdown]
+            try library.create(draft, from: pages)
+            updateRecord(draft)
+            imagesChanged = false
+        }
+        notice = L("已加入文稿")
+        error = nil
     }
 
     private func updateRecord(_ updated: NoteRecord) {

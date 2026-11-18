@@ -7,6 +7,7 @@ enum PreferenceKey {
     static let accent = "paperNotes.accent"
     static let model = "paperNotes.defaultModel"
     static let tokenUsage = "paperNotes.showsTokenUsage"
+    static let paddleDirectory = "paperNotes.paddleDirectory"
 }
 
 enum InterfaceLanguage: String, CaseIterable, Identifiable {

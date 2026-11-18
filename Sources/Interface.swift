@@ -20,6 +20,7 @@ struct WorkspaceView: View {
     @AppStorage("showsReviewSidebar") private var showingReview = true
     @State private var sidebarSection = SidebarSection.review
     @State private var cropPage: PaperPage?
+    @State private var regionPage: PaperPage?
     @State private var focus: PreviewFocus?
     @State private var focusedPhoto: NSImage?
     @State private var showingResolved = false
@@ -44,8 +45,10 @@ struct WorkspaceView: View {
             sidebarSection = .review
         }
         .onChange(of: workspace.selectedPageID) { _, selected in
-            inspectOriginal = false
-            if focus?.page != selected { clearFocus() }
+            if focus?.page != selected {
+                inspectOriginal = false
+                clearFocus()
+            }
         }
     }
 
@@ -86,6 +89,10 @@ struct WorkspaceView: View {
             .sheet(item: $cropPage) { page in
                 CropEditor(workspace: workspace, page: page)
                     .frame(width: min(900, width - 48), height: min(710, max(395, geometry.size.height - 38)))
+            }
+            .sheet(item: $regionPage) { page in
+                RegionEditor(workspace: workspace, page: page)
+                    .frame(width: min(840, width - 48), height: min(720, max(440, geometry.size.height - 38)))
             }
         }
     }
@@ -222,6 +229,8 @@ struct WorkspaceView: View {
                 .help(L("调整角点"))
                 .accessibilityLabel(L("调整角点"))
                 .disabled(workspace.isWorking)
+                pageAction("viewfinder", label: L("框选局部识别")) { regionPage = page }
+                    .disabled(workspace.isWorking || page.originalImage == nil)
             }
         }
         .controlSize(.small)
@@ -402,8 +411,8 @@ struct WorkspaceView: View {
     private var previewSections: [PreviewSection] {
         guard let record = workspace.record else { return [] }
         if let edited = record.editedMarkdown { return [PreviewSection(id: "document", markdown: edited)] }
-        return record.pages.compactMap { page in
-            page.markdown.map { PreviewSection(id: page.id.uuidString, markdown: $0) }
+        return record.pages.map { page in
+            PreviewSection(id: page.id.uuidString, markdown: page.documentMarkdown)
         }
     }
 
@@ -476,8 +485,8 @@ struct WorkspaceView: View {
                 $0.events?.contains { $0.id == id } == true
         }) else { return }
         workspace.showIssuePage(page.id)
-        inspectOriginal = false
-        focusedPhoto = workspace.recognizedImage(for: page.id)
+        inspectOriginal = page.issues.first { $0.id == id }?.showsOriginal == true
+        focusedPhoto = inspectOriginal ? nil : workspace.recognizedImage(for: page.id)
         if page.events?.contains(where: { $0.id == id }) == true {
             sidebarSection = .events
         } else {
@@ -657,6 +666,12 @@ struct WorkspaceView: View {
                 } else {
                     ProgressView().progressViewStyle(.linear).frame(width: 104)
                         .accessibilityLabel(workspace.notice)
+                }
+                if let engine = workspace.activeEngine {
+                    Text(engine.label)
+                        .fontWeight(.medium)
+                        .foregroundStyle(accent.color)
+                        .fixedSize()
                 }
                 Text(workspace.notice).lineLimit(1)
             } else if let error = workspace.error {

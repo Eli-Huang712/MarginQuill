@@ -6,16 +6,17 @@ struct PaperImage: View {
     let annotation: CGRect?
     let badge: String?
 
+    static func imageFrame(_ viewport: CGSize, photo: CGSize) -> CGRect {
+        let scale = min(max(1, viewport.width - 30) / photo.width,
+                        max(1, viewport.height - 30) / photo.height)
+        let size = CGSize(width: photo.width * scale, height: photo.height * scale)
+        return CGRect(x: (viewport.width - size.width) / 2, y: (viewport.height - size.height) / 2,
+                      width: size.width, height: size.height)
+    }
+
     var body: some View {
         GeometryReader { geometry in
-            let available = CGSize(width: max(1, geometry.size.width - 30),
-                                   height: max(1, geometry.size.height - 30))
-            let scale = min(available.width / photo.size.width, available.height / photo.size.height)
-            let image = CGRect(
-                x: (geometry.size.width - photo.size.width * scale) / 2,
-                y: (geometry.size.height - photo.size.height * scale) / 2,
-                width: photo.size.width * scale, height: photo.size.height * scale
-            )
+            let image = Self.imageFrame(geometry.size, photo: photo.size)
             Image(nsImage: photo)
                 .resizable()
                 .frame(width: image.width, height: image.height)

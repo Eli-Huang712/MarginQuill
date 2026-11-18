@@ -63,7 +63,7 @@ struct ImportedPage: Sendable {
         return try encodePNG(photo)
     }
 
-    private static func encodePNG(_ photo: CGImage) throws -> Data {
+    static func encodePNG(_ photo: CGImage) throws -> Data {
         let buffer = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(buffer, UTType.png.identifier as CFString, 1, nil) else {
             throw AppFailure.message(L("无法生成 PNG。"))
