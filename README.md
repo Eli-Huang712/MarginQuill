@@ -1,6 +1,6 @@
 # MarginQuill · 纸笺
 
-MarginQuill turns photos of handwritten notes into editable Markdown on macOS. Import pages from an iPhone or local files, straighten them on your Mac, and review uncertain passages through clickable annotations. Underlines and Mermaid diagrams carry through to the Markdown export.
+MarginQuill turns photos of handwritten notes into editable Markdown on macOS. Import pages from an iPhone or local files, straighten them on your Mac, and review uncertain passages through clickable annotations. Underlines and Mermaid diagrams carry through to the Markdown export. Click a detected to-do to edit it and confirm adding it to Apple Reminders.
 
 The app interface is in Simplified Chinese. It requires macOS 14 or later, [uv](https://docs.astral.sh/uv/) for image preprocessing, and your own OpenAI API key for transcription. Build with `./build.sh`, open `build/纸笺.app`, and enter the key in Settings. The key is stored in the macOS Keychain. Page images are sent to the OpenAI API when you start transcription.
 
@@ -11,6 +11,8 @@ The app interface is in Simplified Chinese. It requires macOS 14 or later, [uv](
 3. 在齿轮设置里保存 OpenAI API 密钥，密钥存放在 Mac 钥匙串。在左下选择模型，点「识别 N 页」才会向 OpenAI Responses API 发送图像。程序按页调用，完成一页保存一次。
 4. 中间默认渲染 Markdown 和 Mermaid，点「还原源码」编辑。疑点在相关文字或框图旁显示紫色编号。用「待核对」栏右上角的按钮收起栏，文档右上角的「待核对」按钮可重新展开并显示剩余数量。点文中的编号会自动展开右栏，定位到对应说明和纸稿。有坐标时会框出纸稿上的大致位置。核对后可标为已处理。导出只包含正文和 Mermaid 源码。
 5. 标题栏左侧的时钟按钮可展开或收起历史栏，旁边依次是新建和 API 设置。点击记录会恢复原图、裁切设置、识别结果和处理过的疑点。重做完整识别会保存为新记录，不完整的记录可继续识别未完成的页面。可在每条记录的菜单里将它移到废纸篓。
+6. 点正文旁的「待办」标记，对照原稿，确认标题、可选的截止日期和目标列表后点「加入提醒事项」。第一次读取列表时，macOS 会请求提醒事项访问权限。写入 iCloud 提醒列表后，可在启用了提醒事项同步的其他设备上查看。「周五前」或未写年份的日期保留为原文，供你选择具体日期。同一条已加入的待办会在纸笺中显示状态。
+7. 宽窗口中侧栏停靠在正文两侧。窗口变窄时，侧栏改为从边缘滑出，收起后可浏览正文。侧栏动画遵循系统的「减少动态效果」设置。
 
 历史记录保存在当前用户的 `Library/Application Support/PaperNotes/History`。预处理需要 [uv](https://docs.astral.sh/uv/)，首次运行可能下载 Python 3.12 和图像依赖。连续互通相机需在 Mac 和 iPhone 上使用同一个 Apple 账户，并开启 Wi-Fi 与蓝牙。[Apple 连续互通相机指南](https://support.apple.com/zh-cn/102332)
 

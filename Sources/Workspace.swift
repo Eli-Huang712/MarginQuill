@@ -9,6 +9,8 @@ final class Workspace: ObservableObject {
     @Published private(set) var history: [NoteRecord] = []
     @Published private(set) var isPreparing = false
     @Published private(set) var isRecognizing = false
+    @Published private(set) var isAddingReminder = false
+    @Published private(set) var availableReminderLists: [ReminderList]?
     @Published private(set) var hasKey: Bool
     @Published private(set) var imagesChanged = false
     @Published var selectedPageID: UUID?
@@ -23,14 +25,16 @@ final class Workspace: ObservableObject {
 
     private let library: NoteLibrary
     private let client: RecognitionClient
+    private let reminders: any ReminderService
     private let loadKey: () -> String?
     private var recognition: Task<Void, Never>?
     private var requestID: UUID?
 
     init(library: NoteLibrary = .local, client: RecognitionClient = RecognitionClient(),
-         loadKey: @escaping () -> String? = Keychain.load) {
+         loadKey: @escaping () -> String? = Keychain.load, reminders: (any ReminderService)? = nil) {
         self.library = library
         self.client = client
+        self.reminders = reminders ?? AppleReminders()
         self.loadKey = loadKey
         hasKey = loadKey() != nil
         do { history = try library.list() }
@@ -250,6 +254,7 @@ final class Workspace: ObservableObject {
                     guard !Task.isCancelled, requestID == id else { return }
                     target.pages[index].markdown = result.markdown
                     target.pages[index].issues = result.issues
+                    target.pages[index].todos = result.todos
                     target.pages[index].usage = result.usage
                     target.pages[index].error = nil
                 } catch {
@@ -305,6 +310,50 @@ final class Workspace: ObservableObject {
               let item = record.pages[index].issues.firstIndex(where: { $0.id == issue }) else { return }
         record.pages[index].issues[item].resolved = resolved
         persist(record)
+    }
+
+    func loadReminderLists() async throws { availableReminderLists = try await reminders.lists() }
+
+    func addReminder(_ id: UUID, to list: ReminderList, title: String, date: ReminderDay?) async throws {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { throw AppFailure.message("请输入待办标题。") }
+        guard !isWorking, !isAddingReminder, let current = record,
+              let todo = current.pages.lazy.compactMap({ $0.todos?.first { $0.id == id } }).first else {
+            throw AppFailure.message("纸稿正在处理或已切换，请稍后再试。")
+        }
+        if todo.delivery?.sent == true { return }
+        isAddingReminder = true
+        defer { isAddingReminder = false }
+
+        // A previously reserved delivery may have reached Reminders before the manifest was updated.
+        if var prior = todo.delivery, try await reminders.contains(id, in: prior.listID) {
+            prior.sent = true
+            let updated = try recordingDelivery(prior, for: id, recordID: current.id)
+            persist(updated)
+            return
+        }
+        try Task.checkCancellation()
+        var delivery = ReminderDelivery(title: title, date: date, listID: list.id, listLabel: list.label)
+        var updated = try recordingDelivery(delivery, for: id, recordID: current.id)
+        try library.save(updated)
+        updateRecord(updated)
+
+        try reminders.add(delivery, for: id)
+        delivery.sent = true
+        updated = try recordingDelivery(delivery, for: id, recordID: current.id)
+        error = nil
+        notice = "已加入提醒事项"
+        persist(updated)
+    }
+
+    private func recordingDelivery(_ delivery: ReminderDelivery, for id: UUID, recordID: UUID) throws -> NoteRecord {
+        guard !isWorking, var record, record.id == recordID,
+              let page = record.pages.firstIndex(where: { $0.todos?.contains { $0.id == id } == true }),
+              let index = record.pages[page].todos?.firstIndex(where: { $0.id == id }) else {
+            throw AppFailure.message("纸稿已切换，请重新打开该待办。")
+        }
+        record.pages[page].todos?[index].delivery = delivery
+        return record
     }
 
     func openHistory(_ id: UUID) {

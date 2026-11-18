@@ -37,7 +37,7 @@ struct CropEditor: View {
                 }.disabled(workspace.isPreparing)
             }
             canvas
-                .frame(minHeight: 405)
+                .frame(minHeight: 225, maxHeight: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             if let error {
                 Label(error, systemImage: "exclamationmark.circle")
@@ -57,7 +57,6 @@ struct CropEditor: View {
             }
         }
         .padding(22)
-        .frame(width: 760, height: 620)
         .tint(PaperTheme.accent)
         .interactiveDismissDisabled(workspace.isPreparing)
     }

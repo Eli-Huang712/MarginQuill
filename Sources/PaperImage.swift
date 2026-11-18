@@ -3,7 +3,7 @@ import SwiftUI
 struct PaperImage: View {
     let photo: NSImage
     let annotation: CGRect?
-    let number: Int?
+    let badge: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -38,8 +38,8 @@ struct PaperImage: View {
                     .allowsHitTesting(false)
                     .accessibilityLabel("原稿上的大致注释位置")
 
-                if let number {
-                    Text("注释 \(number)")
+                if let badge {
+                    Text(badge)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Color(nsColor: .textBackgroundColor))
                         .padding(.horizontal, 7).padding(.vertical, 3)

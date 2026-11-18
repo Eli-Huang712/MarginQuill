@@ -12,15 +12,17 @@ struct PreviewAnnotation: Equatable {
     let number: Int
     let category: String
     let anchor: String?
+    var todo = false
 
     var payload: [String: Any] {
-        ["id": id.uuidString, "section": section, "number": number, "category": category, "anchor": anchor ?? ""]
+        ["id": id.uuidString, "section": section, "number": number, "category": category,
+         "anchor": anchor ?? "", "todo": todo]
     }
 }
 
 struct PreviewFocus: Equatable {
     let page: UUID
-    let issue: UUID
+    let annotation: UUID
     let request = UUID()
 }
 
@@ -113,7 +115,7 @@ struct MarkdownPreview: NSViewRepresentable {
             guard appliedFocus != focus else { return }
             appliedFocus = focus
             view.callAsyncJavaScript("window.focusPaperAnnotation(page, issue)", arguments: [
-                "page": focus?.page.uuidString ?? "", "issue": focus?.issue.uuidString ?? ""
+                "page": focus?.page.uuidString ?? "", "issue": focus?.annotation.uuidString ?? ""
             ], in: nil, in: .page, completionHandler: nil)
         }
 

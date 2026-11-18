@@ -69,7 +69,7 @@ final class PaperNotesApp: NSObject, NSApplicationDelegate, NSToolbarDelegate, N
         window.toolbar = toolbar
         window.toolbarStyle = .unifiedCompact
         bindWindow(to: toolbar)
-        window.contentMinSize = NSSize(width: 995, height: 530)
+        window.contentMinSize = NSSize(width: 760, height: 510)
         window.setContentSize(NSSize(width: 1270, height: 742))
         window.center()
         window.makeKeyAndOrderFront(nil)

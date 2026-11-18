@@ -12,10 +12,16 @@ enum PaperTheme {
     static let surface = Color(nsColor: .windowBackgroundColor)
 }
 
+private enum SidebarSection {
+    case review, todos
+}
+
 struct WorkspaceView: View {
     @ObservedObject var workspace: Workspace
     var capture: CaptureButton
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("showsReviewSidebar") private var showingReview = true
+    @State private var sidebarSection = SidebarSection.review
     @State private var cropPage: PaperPage?
     @State private var focus: PreviewFocus?
     @State private var focusedPhoto: NSImage?
@@ -32,10 +38,10 @@ struct WorkspaceView: View {
         .background(PaperTheme.surface)
         .tint(PaperTheme.accent)
         .sheet(isPresented: $workspace.showingSettings) { SettingsView(workspace: workspace) }
-        .sheet(item: $cropPage) { page in CropEditor(workspace: workspace, page: page) }
         .onChange(of: workspace.record?.id) { _, _ in
             clearFocus()
             showingResolved = false
+            sidebarSection = .review
         }
         .onChange(of: workspace.selectedPageID) { _, selected in
             inspectOriginal = false
@@ -45,33 +51,55 @@ struct WorkspaceView: View {
 
     private var workArea: some View {
         GeometryReader { geometry in
-            let docked = geometry.size.width >= 1175
+            let width = geometry.size.width
+            let historyDocked = width >= 1200
+            let reviewDocked = width >= 1010
+            let paperWidth = min(350, max(240, width * 0.27))
+            let reviewWidth = min(302, max(266, width * 0.235))
             HStack(spacing: 0) {
-                if workspace.showingHistory && docked {
-                    historyPane(docked: true)
-                    Divider()
-                }
+                Color.clear.frame(width: historyDocked && workspace.showingHistory ? 213 : 0)
+                    .accessibilityHidden(true)
                 HSplitView {
                     sourcePane
-                        .frame(minWidth: 306, idealWidth: 322, maxWidth: 350, maxHeight: .infinity)
+                        .frame(minWidth: 230, idealWidth: paperWidth, maxWidth: paperWidth, maxHeight: .infinity)
                         .layoutPriority(1)
                     documentPane
-                        .frame(minWidth: 385, maxWidth: .infinity, maxHeight: .infinity)
-                    if showingReview {
-                        reviewPane
-                            .frame(minWidth: 245, idealWidth: 260, maxWidth: 280, maxHeight: .infinity)
-                            .layoutPriority(1)
-                    }
+                        .frame(minWidth: 338, maxWidth: .infinity, maxHeight: .infinity)
                 }
+                Color.clear.frame(width: reviewDocked && showingReview ? reviewWidth : 0)
+                    .accessibilityHidden(true)
             }
             .overlay(alignment: .leading) {
-                if workspace.showingHistory && !docked {
-                    historyPane(docked: false)
-                        .overlay(alignment: .trailing) { Divider() }
-                        .shadow(color: .black.opacity(0.20), radius: 9, x: 4)
+                slidingSidebar(width: 213, visible: workspace.showingHistory, edge: .leading) {
+                    historyPane(docked: historyDocked)
                 }
+                .shadow(color: .black.opacity(!historyDocked && workspace.showingHistory ? 0.16 : 0), radius: 10, x: 4)
+            }
+            .overlay(alignment: .trailing) {
+                slidingSidebar(width: reviewWidth, visible: showingReview, edge: .trailing) {
+                    reviewPane
+                }
+                .shadow(color: .black.opacity(!reviewDocked && showingReview ? 0.16 : 0), radius: 10, x: -4)
+            }
+            .animation(reduceMotion ? nil : .smooth(duration: 0.28), value: workspace.showingHistory)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.28), value: showingReview)
+            .sheet(item: $cropPage) { page in
+                CropEditor(workspace: workspace, page: page)
+                    .frame(width: min(900, width - 48), height: min(710, max(395, geometry.size.height - 38)))
             }
         }
+    }
+
+    private func slidingSidebar<Content: View>(width: CGFloat, visible: Bool, edge: HorizontalEdge,
+                                               @ViewBuilder content: () -> Content) -> some View {
+        let alignment: Alignment = edge == .leading ? .trailing : .leading
+        return content()
+            .frame(width: width)
+            .overlay(alignment: alignment) { Rectangle().fill(PaperTheme.divider).frame(width: 1) }
+            .frame(width: visible ? width : 0, alignment: alignment)
+            .clipped()
+            .allowsHitTesting(visible)
+            .accessibilityHidden(!visible)
     }
 
     private func historyPane(docked: Bool) -> some View {
@@ -180,8 +208,14 @@ struct WorkspaceView: View {
                 pageAction("minus", label: "移除选中页") { workspace.removePage(page.id) }
                     .disabled(workspace.isWorking)
                 Spacer(minLength: 5)
-                Button { cropPage = page } label: { Label("调整角点", systemImage: "crop") }
-                    .disabled(workspace.isWorking)
+                ViewThatFits(in: .horizontal) {
+                    Button { cropPage = page } label: { Label("调整角点", systemImage: "crop") }
+                        .fixedSize()
+                    Button { cropPage = page } label: { Image(systemName: "crop") }
+                }
+                .help("调整角点")
+                .accessibilityLabel("调整角点")
+                .disabled(workspace.isWorking)
             }
         }
         .controlSize(.small)
@@ -199,8 +233,12 @@ struct WorkspaceView: View {
                let photo = inspectOriginal ? selected.originalImage : (focusedPhoto ?? selected.image) {
                 PaperImage(
                     photo: photo,
-                    annotation: inspectOriginal || focusedPhoto == nil ? nil : focusedItem?.box?.visibleRect,
-                    number: focus.flatMap { reviewNumbers[$0.issue] }
+                    annotation: inspectOriginal || focusedPhoto == nil ? nil : focusedBox?.visibleRect,
+                    badge: focus.flatMap { selection in
+                        annotationNumbers[selection.annotation].map {
+                            "\(todos.contains { $0.id == selection.annotation } ? "待办" : "注释") \($0)"
+                        }
+                    }
                 )
                 if selected.preparedImage != nil {
                     Button(inspectOriginal ? "查看处理后" : "查看原图") { inspectOriginal.toggle() }
@@ -274,34 +312,11 @@ struct WorkspaceView: View {
     private var documentPane: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text("文档").font(.headline)
-                Spacer()
-                if workspace.record != nil {
-                    Button {
-                        workspace.showingSource.toggle()
-                    } label: {
-                        Label(workspace.showingSource ? "显示预览" : "还原源码",
-                              systemImage: workspace.showingSource ? "doc.richtext" : "chevron.left.forwardslash.chevron.right")
-                    }
-                    .disabled(workspace.isRecognizing)
-                }
-                Button(action: workspace.copy) { Image(systemName: "document.on.document") }
-                    .help("复制 Markdown").accessibilityLabel("复制 Markdown")
-                    .disabled(workspace.markdown.isEmpty)
-                Button(action: workspace.export) { Label("导出…", systemImage: "square.and.arrow.up") }
-                    .disabled(workspace.markdown.isEmpty)
-                if !showingReview {
-                    Button {
-                        showingReview = true
-                    } label: {
-                        HStack(spacing: 5) {
-                            Label("待核对", systemImage: "sidebar.right")
-                            reviewCountBadge
-                        }
-                    }
-                    .help("展开待核对侧栏")
-                    .accessibilityLabel("展开待核对侧栏")
-                    .accessibilityValue("\(reviewCount) 项待核对")
+                Text("文档").font(.headline).fixedSize()
+                Spacer(minLength: 4)
+                ViewThatFits(in: .horizontal) {
+                    documentActions(compact: false).fixedSize(horizontal: true, vertical: false)
+                    documentActions(compact: true)
                 }
             }
             .padding(.horizontal, 15)
@@ -338,6 +353,44 @@ struct WorkspaceView: View {
         }
     }
 
+    private func documentActions(compact: Bool) -> some View {
+        HStack(spacing: compact ? 6 : 10) {
+            if workspace.record != nil {
+                let title = workspace.showingSource ? "显示预览" : "还原源码"
+                Button {
+                    workspace.showingSource.toggle()
+                } label: {
+                    actionLabel(title, icon: workspace.showingSource ? "doc.richtext" :
+                                    "chevron.left.forwardslash.chevron.right", compact: compact)
+                }
+                .help(title).accessibilityLabel(title)
+                .disabled(workspace.isRecognizing)
+            }
+            Button(action: workspace.copy) { Image(systemName: "document.on.document") }
+                .help("复制 Markdown").accessibilityLabel("复制 Markdown")
+                .disabled(workspace.markdown.isEmpty)
+            Button(action: workspace.export) { actionLabel("导出…", icon: "square.and.arrow.up", compact: compact) }
+                .help("导出 Markdown").accessibilityLabel("导出 Markdown")
+                .disabled(workspace.markdown.isEmpty)
+            if !showingReview {
+                Button { showingReview = true } label: {
+                    HStack(spacing: 5) {
+                        actionLabel(sidebarTitle, icon: "sidebar.right", compact: compact)
+                        countBadge(reviewCount + todoCount)
+                    }
+                }
+                .help("展开\(sidebarTitle)侧栏")
+                .accessibilityLabel("展开\(sidebarTitle)侧栏")
+                .accessibilityValue("\(reviewCount) 项待核对，\(todoCount) 项待办")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func actionLabel(_ title: String, icon: String, compact: Bool) -> some View {
+        if compact { Image(systemName: icon) } else { Label(title, systemImage: icon) }
+    }
+
     private var previewSections: [PreviewSection] {
         guard let record = workspace.record else { return [] }
         if let edited = record.editedMarkdown { return [PreviewSection(id: "document", markdown: edited)] }
@@ -350,9 +403,12 @@ struct WorkspaceView: View {
         workspace.record?.pages.reduce(0) { $0 + $1.issues.filter { !$0.resolved }.count } ?? 0
     }
 
+    private var todos: [PaperTodo] { workspace.record?.pages.flatMap { $0.todos ?? [] } ?? [] }
+    private var todoCount: Int { todos.filter { $0.delivery?.sent != true }.count }
+    private var sidebarTitle: String { todos.isEmpty ? "待核对" : "批注" }
+
     @ViewBuilder
-    private var reviewCountBadge: some View {
-        let count = reviewCount
+    private func countBadge(_ count: Int) -> some View {
         if count > 0 {
             Text("\(count)").font(.caption.monospacedDigit().weight(.semibold))
                 .padding(.horizontal, 7).padding(.vertical, 3)
@@ -361,37 +417,50 @@ struct WorkspaceView: View {
         }
     }
 
-    private var reviewNumbers: [UUID: Int] {
-        let items = workspace.record?.pages.flatMap(\.issues) ?? []
-        return Dictionary(uniqueKeysWithValues: items.enumerated().map { ($0.element.id, $0.offset + 1) })
+    private var annotationNumbers: [UUID: Int] {
+        let issues = workspace.record?.pages.flatMap(\.issues).map(\.id) ?? []
+        let tasks = todos.map(\.id)
+        return Dictionary(uniqueKeysWithValues: [issues, tasks].flatMap { ids in
+            ids.enumerated().map { ($0.element, $0.offset + 1) }
+        })
     }
 
-    private var focusedItem: ReviewItem? {
-        guard let focus else { return nil }
-        return workspace.record?.pages.first(where: { $0.id == focus.page })?.issues
-            .first { $0.id == focus.issue }
+    private var focusedBox: ReviewBox? {
+        guard let focus, let page = workspace.record?.pages.first(where: { $0.id == focus.page }) else { return nil }
+        return page.issues.first { $0.id == focus.annotation }?.box
+            ?? page.todos?.first { $0.id == focus.annotation }?.box
     }
 
     private var previewAnnotations: [PreviewAnnotation] {
         guard let record = workspace.record else { return [] }
-        let numbers = reviewNumbers
+        let numbers = annotationNumbers
         return record.pages.flatMap { page in
             let section = record.editedMarkdown == nil ? page.id.uuidString : "document"
-            return page.issues.filter { !$0.resolved }.compactMap { item in
+            let issues = page.issues.filter { !$0.resolved }.compactMap { item in
                 numbers[item.id].map { number in
                     PreviewAnnotation(id: item.id, section: section, number: number,
                                       category: item.category, anchor: item.anchor)
                 }
             }
+            let tasks = (page.todos ?? []).compactMap { todo in
+                numbers[todo.id].map { number in
+                    PreviewAnnotation(id: todo.id, section: section, number: number,
+                                      category: todo.delivery?.title ?? todo.title, anchor: todo.anchor, todo: true)
+                }
+            }
+            return issues + tasks
         }
     }
 
     private func openAnnotation(_ id: UUID) {
-        guard let page = workspace.record?.pages.first(where: { $0.issues.contains { $0.id == id } }) else { return }
+        guard let page = workspace.record?.pages.first(where: {
+            $0.issues.contains { $0.id == id } || $0.todos?.contains { $0.id == id } == true
+        }) else { return }
         workspace.showIssuePage(page.id)
         inspectOriginal = false
         focusedPhoto = workspace.recognizedImage(for: page.id)
-        focus = PreviewFocus(page: page.id, issue: id)
+        sidebarSection = page.todos?.contains { $0.id == id } == true ? .todos : .review
+        focus = PreviewFocus(page: page.id, annotation: id)
         showingReview = true
     }
 
@@ -404,56 +473,49 @@ struct WorkspaceView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: "checklist").foregroundStyle(PaperTheme.accent).accessibilityHidden(true)
-                Text("待核对").font(.headline)
-                reviewCountBadge
+                Text(sidebarTitle).font(.headline)
+                if todos.isEmpty { countBadge(reviewCount) }
                 Spacer()
-                Button {
-                    showingReview = false
-                } label: {
-                    Image(systemName: "sidebar.right")
-                }
-                .help("收起待核对侧栏")
-                .accessibilityLabel("收起待核对侧栏")
+                Button { showingReview = false } label: { Image(systemName: "sidebar.right") }
+                    .help("收起\(sidebarTitle)侧栏")
+                    .accessibilityLabel("收起\(sidebarTitle)侧栏")
             }
             .padding(.horizontal, 15).frame(height: 47)
             Divider()
+            if !todos.isEmpty {
+                Picker("批注类别", selection: $sidebarSection) {
+                    Text("待核对 \(reviewCount)").tag(SidebarSection.review)
+                    Text("待办 \(todoCount)").tag(SidebarSection.todos)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
             if let record = workspace.record {
                 ScrollViewReader { scroll in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
-                            let resolved = record.pages.flatMap(\.issues).contains { $0.resolved }
-                            if resolved {
-                                Toggle("显示已处理", isOn: $showingResolved)
-                                    .toggleStyle(.checkbox).font(.caption)
-                            }
-                            ForEach(Array(record.pages.enumerated()), id: \.element.id) { index, page in
-                                if let error = page.error {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("第 \(index + 1) 页 · 识别暂停").font(.subheadline.weight(.semibold))
-                                        Text(error).font(.caption).foregroundStyle(.secondary)
+                            if sidebarSection == .todos {
+                                ForEach(Array(record.pages.enumerated()), id: \.element.id) { index, page in
+                                    ForEach(page.todos ?? []) { todo in
+                                        ReminderCard(workspace: workspace, todo: todo,
+                                                     number: annotationNumbers[todo.id] ?? 0, page: index + 1,
+                                                     selected: focus?.annotation == todo.id) {
+                                            openAnnotation(todo.id)
+                                        }
+                                        .id(todo.id)
                                     }
-                                    .padding(10)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(PaperTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
                                 }
-                                ForEach(page.issues.filter { showingResolved || !$0.resolved }) { item in
-                                    issueCard(item, page: page, index: index)
-                                        .id(item.id)
-                                }
-                            }
-                            if reviewCount == 0 && !record.pages.contains(where: { $0.error != nil }) &&
-                                !(resolved && showingResolved) {
-                                Text(workspace.isRecognizing ? "等待识别结果…" :
-                                        (record.completedCount == 0 ? "识别后的疑点会显示在这里。" : "已完成页面没有待核对项。"))
-                                    .font(.callout).foregroundStyle(.secondary)
-                                    .padding(.top, 3)
+                            } else {
+                                reviewItems(record)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(14)
                     }
                     .onChange(of: focus, initial: true) { _, selected in
-                        if let selected { scroll.scrollTo(selected.issue, anchor: .center) }
+                        if let selected { scroll.scrollTo(selected.annotation, anchor: .center) }
                     }
                 }
             } else {
@@ -467,9 +529,39 @@ struct WorkspaceView: View {
         .background(PaperTheme.surface)
     }
 
+    @ViewBuilder
+    private func reviewItems(_ record: NoteRecord) -> some View {
+        let resolved = record.pages.flatMap(\.issues).contains { $0.resolved }
+        if resolved {
+            Toggle("显示已处理", isOn: $showingResolved)
+                .toggleStyle(.checkbox).font(.caption)
+        }
+        ForEach(Array(record.pages.enumerated()), id: \.element.id) { index, page in
+            if let error = page.error {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("第 \(index + 1) 页 · 识别暂停").font(.subheadline.weight(.semibold))
+                    Text(error).font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(PaperTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+            }
+            ForEach(page.issues.filter { showingResolved || !$0.resolved }) { item in
+                issueCard(item, page: page, index: index).id(item.id)
+            }
+        }
+        if reviewCount == 0 && !record.pages.contains(where: { $0.error != nil }) &&
+            !(resolved && showingResolved) {
+            Text(workspace.isRecognizing ? "等待识别结果…" :
+                    (record.completedCount == 0 ? "识别后的疑点会显示在这里。" : "已完成页面没有待核对项。"))
+                .font(.callout).foregroundStyle(.secondary)
+                .padding(.top, 3)
+        }
+    }
+
     private func issueCard(_ item: ReviewItem, page: NoteRecord.Page, index: Int) -> some View {
-        let selected = focus?.issue == item.id
-        let number = reviewNumbers[item.id] ?? 0
+        let selected = focus?.annotation == item.id
+        let number = annotationNumbers[item.id] ?? 0
         return VStack(alignment: .leading, spacing: 8) {
             Button {
                 openAnnotation(item.id)

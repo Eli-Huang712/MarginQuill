@@ -106,10 +106,11 @@ function addAnnotations(annotations) {
     const button = document.createElement("button");
     button.type = "button";
     button.id = "issue-" + item.id;
-    button.className = "review-badge";
-    button.textContent = item.number;
-    button.setAttribute("aria-label", "注释 " + item.number + "，" + item.category);
-    button.title = "查看注释 " + item.number + " · " + item.category;
+    button.className = item.todo ? "review-badge todo-badge" : "review-badge";
+    button.textContent = item.todo ? "待办 " + item.number : item.number;
+    const kind = item.todo ? "待办" : "注释";
+    button.setAttribute("aria-label", kind + " " + item.number + "，" + item.category);
+    button.title = "查看" + kind + " " + item.number + " · " + item.category;
     button.onclick = () => window.webkit.messageHandlers.paperReview.postMessage(item.id);
 
     const anchor = item.anchor.trim();
@@ -120,7 +121,7 @@ function addAnnotations(annotations) {
       else placement.insertNode(button);
       continue;
     }
-    const diagrams = [...section.querySelectorAll("figure.diagram")];
+    const diagrams = item.todo ? [] : [...section.querySelectorAll("figure.diagram")];
     const matching = diagrams.filter((figure) => anchor && figure.querySelector("svg")?.textContent.includes(anchor));
     const diagram = matching.length === 1 ? matching[0] :
       (diagrams.length === 1 && /箭头|连线|节点|框图/.test(item.category) ? diagrams[0] : null);

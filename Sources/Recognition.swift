@@ -63,6 +63,7 @@ struct APIUsage: Codable {
 struct RecognitionResult {
     let markdown: String
     let issues: [ReviewItem]
+    let todos: [PaperTodo]
     let usage: APIUsage
 }
 
@@ -112,7 +113,7 @@ struct RecognitionClient {
     private static let outputFormat: [String: Any] = [
         "type": "json_schema", "name": "paper_note_page", "strict": true,
         "schema": [
-            "type": "object", "required": ["markdown", "issues"], "additionalProperties": false,
+            "type": "object", "required": ["markdown", "issues", "todos"], "additionalProperties": false,
             "properties": [
                 "markdown": ["type": "string"],
                 "issues": [
@@ -123,6 +124,20 @@ struct RecognitionClient {
                         "properties": [
                             "category": ["type": "string"], "location": ["type": "string"],
                             "detail": ["type": "string"],
+                            "anchor": ["type": ["string", "null"]],
+                            "box": boxSchema
+                        ]
+                    ]
+                ],
+                "todos": [
+                    "type": "array",
+                    "items": [
+                        "type": "object", "required": ["title", "dueText", "date", "anchor", "box"],
+                        "additionalProperties": false,
+                        "properties": [
+                            "title": ["type": "string"],
+                            "dueText": ["type": ["string", "null"]],
+                            "date": ["type": ["string", "null"]],
                             "anchor": ["type": ["string", "null"]],
                             "box": boxSchema
                         ]
@@ -142,6 +157,15 @@ struct RecognitionClient {
         }
         let markdown: String
         let issues: [Item]
+        let todos: [Todo]?
+
+        struct Todo: Decodable {
+            let title: String
+            let dueText: String?
+            let date: String?
+            let anchor: String?
+            let box: ReviewBox?
+        }
     }
 
     private struct Envelope: Decodable {
@@ -191,8 +215,16 @@ struct RecognitionClient {
             ReviewItem(category: $0.category, location: $0.location, detail: $0.detail,
                        anchor: $0.anchor, box: $0.box)
         }
+        let todos = (content.todos ?? []).compactMap { todo -> PaperTodo? in
+            let title = todo.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { return nil }
+            let date = todo.date.flatMap(ReminderDay.init(iso:))
+            return PaperTodo(title: title, dueText: todo.dueText,
+                             date: date.flatMap { $0.matchesPrintedDate(in: todo.dueText) ? $0 : nil },
+                             anchor: todo.anchor, box: todo.box)
+        }
         return RecognitionResult(markdown: content.markdown.trimmingCharacters(in: .whitespacesAndNewlines),
-                                 issues: issues, usage: APIUsage(inputTokens: result.usage?.input_tokens,
+                                 issues: issues, todos: todos, usage: APIUsage(inputTokens: result.usage?.input_tokens,
                                                                 outputTokens: result.usage?.output_tokens))
     }
 }

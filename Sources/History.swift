@@ -62,6 +62,7 @@ struct NoteRecord: Codable, Identifiable {
         let enhanced: Bool
         var markdown: String?
         var issues: [ReviewItem] = []
+        var todos: [PaperTodo]?
         var error: String?
         var usage: APIUsage?
 
