@@ -339,8 +339,9 @@ struct WorkspaceView: View {
                 if workspace.showingSource {
                     MarkdownEditor(text: Binding(get: { workspace.markdown }, set: { workspace.editMarkdown($0) }),
                                    isEditable: !workspace.isRecognizing)
-                } else if !workspace.markdown.isEmpty {
-                    MarkdownPreview(sections: previewSections, annotations: previewAnnotations,
+                } else if !workspace.markdown.isEmpty || workspace.streamedPage != nil {
+                    MarkdownPreview(sections: previewSections, draft: workspace.streamedPage,
+                                    annotations: previewAnnotations,
                                     focus: focus, openAnnotation: openAnnotation)
                 } else {
                     VStack(spacing: 10) {
@@ -645,8 +646,20 @@ struct WorkspaceView: View {
 
     private var statusBar: some View {
         HStack(spacing: 8) {
-            if workspace.isWorking { ProgressView().controlSize(.small) }
-            if let error = workspace.error {
+            if workspace.isWorking {
+                if let progress = workspace.recognitionProgress, progress.total > 1 {
+                    let count = L("已完成 %@/%@ 页", progress.completed, progress.total)
+                    ProgressView(value: Double(progress.completed), total: Double(progress.total))
+                        .progressViewStyle(.linear)
+                        .frame(width: 104)
+                        .accessibilityLabel(count)
+                    Text(count).monospacedDigit().accessibilityHidden(true)
+                } else {
+                    ProgressView().progressViewStyle(.linear).frame(width: 104)
+                        .accessibilityLabel(workspace.notice)
+                }
+                Text(workspace.notice).lineLimit(1)
+            } else if let error = workspace.error {
                 Label(error, systemImage: "exclamationmark.circle").lineLimit(1)
             } else if workspace.imagesChanged, workspace.record != nil, !workspace.isWorking {
                 Text(L("纸稿已调整，下次识别会建立新记录。")).lineLimit(1)

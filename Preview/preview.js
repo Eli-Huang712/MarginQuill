@@ -14,6 +14,32 @@ renderer.renderer.rules.fence = (tokens, index, options, environment, self) => {
 
 let revision = 0;
 
+function renderMarkdown(markdown) {
+  return DOMPurify.sanitize(renderer.render(markdown), {
+    ALLOWED_TAGS: ["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li",
+      "strong", "em", "u", "s", "del", "a", "blockquote", "pre", "code", "br",
+      "hr", "sub", "sup", "table", "thead", "tbody", "tr", "th", "td"],
+    ALLOWED_ATTR: ["href", "class", "start"]
+  });
+}
+
+window.renderPaperDraft = (markdown) => {
+  const main = document.querySelector("main");
+  let draft = main.querySelector(".streaming-page");
+  if (markdown == null) {
+    draft?.remove();
+    return;
+  }
+  const follow = document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 36;
+  if (!draft) {
+    draft = document.createElement("section");
+    draft.className = "streaming-page";
+    main.append(draft);
+  }
+  draft.innerHTML = renderMarkdown(markdown);
+  if (follow) window.scrollTo(0, document.documentElement.scrollHeight);
+};
+
 window.renderPaperNotes = async (pages, annotations, dark, accent, english) => {
   const run = ++revision;
   document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -25,12 +51,7 @@ window.renderPaperNotes = async (pages, annotations, dark, accent, english) => {
   for (const { id, markdown } of pages) {
     const section = document.createElement("section");
     section.id = "page-" + id;
-    section.innerHTML = DOMPurify.sanitize(renderer.render(markdown), {
-      ALLOWED_TAGS: ["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li",
-        "strong", "em", "u", "s", "del", "a", "blockquote", "pre", "code", "br",
-        "hr", "sub", "sup", "table", "thead", "tbody", "tr", "th", "td"],
-      ALLOWED_ATTR: ["href", "class", "start"]
-    });
+    section.innerHTML = renderMarkdown(markdown);
     fragment.append(section);
   }
   main.replaceChildren(fragment);

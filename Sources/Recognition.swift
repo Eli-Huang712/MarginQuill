@@ -34,16 +34,60 @@ struct RecognitionResult {
     let usage: APIUsage
 }
 
+enum RecognitionUpdate: Sendable {
+    case waitingForModel
+    case markdown(String)
+}
+
 struct RecognitionClient {
     var session: URLSession = .shared
 
-    func recognize(png: Data, model: RecognitionModel, key: String, prompt: String) async throws -> RecognitionResult {
+    func recognize(png: Data, model: RecognitionModel, key: String, prompt: String,
+                   onUpdate: @MainActor @Sendable (RecognitionUpdate) -> Void = { _ in }) async throws -> RecognitionResult {
         let request = try makeRequest(png: png, model: model, key: key, prompt: prompt)
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
         guard let response = response as? HTTPURLResponse else {
             throw AppFailure.message(L("没有收到有效的 API 响应。"))
         }
-        return try parseResponse(data, status: response.statusCode)
+        try validateStatus(response.statusCode)
+        await onUpdate(.waitingForModel)
+
+        let decoder = JSONDecoder()
+        var events = ServerSentEvents()
+        var output = ""
+        var previousMarkdown = ""
+        var lastUpdate: ContinuousClock.Instant?
+        for try await byte in bytes {
+            guard let data = events.append(byte), data != Data("[DONE]".utf8) else { continue }
+            try Task.checkCancellation()
+            guard let event = try? decoder.decode(StreamEvent.self, from: data) else {
+                throw AppFailure.message(L("无法读取识别服务返回的流式数据。"))
+            }
+            switch event.type {
+            case "response.output_text.delta", "response.output_text.done":
+                if let text = event.text { output = text }
+                else if let delta = event.delta { output += delta }
+                let now = ContinuousClock.now
+                if event.text == nil, let lastUpdate, lastUpdate.duration(to: now) < .milliseconds(100) { continue }
+                if let markdown = PartialMarkdown.read(from: output), markdown != previousMarkdown {
+                    previousMarkdown = markdown
+                    lastUpdate = now
+                    await onUpdate(.markdown(markdown))
+                }
+            case "response.completed", "response.incomplete", "response.failed":
+                guard let result = event.response else {
+                    throw AppFailure.message(L("API 没有返回符合格式的识别结果。"))
+                }
+                return try parseResponse(result)
+            case "error":
+                throw AppFailure.message(L("识别服务中途报错，请继续识别未完成的页面。"))
+            default:
+                break
+            }
+        }
+        try Task.checkCancellation()
+        throw AppFailure.message(L("识别连接提前结束，请继续识别未完成的页面。"))
     }
 
     func makeRequest(png: Data, model: RecognitionModel, key: String, prompt: String) throws -> URLRequest {
@@ -56,6 +100,7 @@ struct RecognitionClient {
             "input": [["role": "user", "content": content]],
             "reasoning": ["effort": "low"],
             "max_output_tokens": 6000,
+            "stream": true,
             "store": false,
             "text": ["format": Self.outputFormat]
         ]
@@ -64,6 +109,7 @@ struct RecognitionClient {
         request.timeoutInterval = 180
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         return request
     }
@@ -183,7 +229,14 @@ struct RecognitionClient {
         let usage: Usage?
     }
 
-    func parseResponse(_ data: Data, status: Int) throws -> RecognitionResult {
+    private struct StreamEvent: Decodable {
+        let type: String
+        let delta: String?
+        let text: String?
+        let response: Envelope?
+    }
+
+    private func validateStatus(_ status: Int) throws {
         switch status {
         case 200..<300: break
         case 400: throw AppFailure.message(L("API 无法处理这张图或该模型参数（400）。"))
@@ -191,7 +244,9 @@ struct RecognitionClient {
         case 429: throw AppFailure.message(L("API 额度不足或请求太频繁（429）。请检查用量后重试。"))
         default: throw AppFailure.message(L("OpenAI API 返回 %@。请稍后重试。", status))
         }
-        let result = try JSONDecoder().decode(Envelope.self, from: data)
+    }
+
+    private func parseResponse(_ result: Envelope) throws -> RecognitionResult {
         if result.status == "incomplete" {
             throw AppFailure.message(L("识别结果未完整返回。可裁取较密的部分后重试。"))
         }

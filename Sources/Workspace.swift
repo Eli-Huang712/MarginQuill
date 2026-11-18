@@ -9,6 +9,8 @@ final class Workspace: ObservableObject {
     @Published private(set) var history: [NoteRecord] = []
     @Published private(set) var isPreparing = false
     @Published private(set) var isRecognizing = false
+    @Published private(set) var recognitionProgress: (completed: Int, total: Int)?
+    @Published private(set) var streamedPage: PreviewSection?
     @Published private(set) var isAddingReminder = false
     @Published private(set) var isAddingEvent = false
     @Published private(set) var availableReminderLists: [ReminderList]?
@@ -272,6 +274,7 @@ final class Workspace: ObservableObject {
         guard !pending.isEmpty else { return }
         let id = UUID()
         requestID = id
+        recognitionProgress = (target.completedCount, target.pages.count)
         isRecognizing = true
         imagesChanged = false
         showingSource = false
@@ -282,14 +285,31 @@ final class Workspace: ObservableObject {
                 if requestID == id {
                     recognition = nil
                     requestID = nil
+                    recognitionProgress = nil
+                    streamedPage = nil
                     isRecognizing = false
                 }
             }
+            let total = target.pages.count
             for (index, png) in pending {
-                notice = L("正在识别第 %@/%@ 页…", index + 1, target.pages.count)
+                let pageID = target.pages[index].id.uuidString
+                let pageNumber = index + 1
+                notice = L("正在提交第 %@/%@ 页…", pageNumber, total)
                 do {
-                    let result = try await client.recognize(png: png, model: target.model, key: key, prompt: prompt)
+                    let result = try await client.recognize(png: png, model: target.model, key: key, prompt: prompt) { update in
+                        guard self.requestID == id else { return }
+                        switch update {
+                        case .waitingForModel:
+                            self.notice = L("等待识别第 %@/%@ 页…", pageNumber, total)
+                        case .markdown(let markdown):
+                            if self.streamedPage == nil {
+                                self.notice = L("正在输出第 %@/%@ 页…", pageNumber, total)
+                            }
+                            self.streamedPage = PreviewSection(id: pageID, markdown: markdown)
+                        }
+                    }
                     guard !Task.isCancelled, requestID == id else { return }
+                    notice = L("正在保存第 %@/%@ 页…", pageNumber, total)
                     target.pages[index].markdown = result.markdown
                     target.pages[index].issues = result.issues
                     target.pages[index].todos = result.todos
@@ -300,10 +320,12 @@ final class Workspace: ObservableObject {
                     guard !Task.isCancelled, requestID == id else { return }
                     target.pages[index].error = error.localizedDescription
                     if !persist(target) { return }
-                    notice = L("第 %@ 页暂停 · 已完成 %@/%@ 页", index + 1, target.completedCount, target.pages.count)
+                    notice = L("第 %@ 页暂停 · 已完成 %@/%@ 页", pageNumber, target.completedCount, total)
                     return
                 }
                 if !persist(target) { return }
+                streamedPage = nil
+                recognitionProgress = (target.completedCount, total)
             }
             notice = L("已按顺序整理 %@ 页", target.completedCount)
         }
@@ -313,6 +335,8 @@ final class Workspace: ObservableObject {
         recognition?.cancel()
         recognition = nil
         requestID = nil
+        recognitionProgress = nil
+        streamedPage = nil
         isRecognizing = false
         notice = L("已停止等待，已完成的页面已保存")
     }

@@ -216,7 +216,14 @@
 "纸稿预处理结果不完整。" = "Some preprocessed pages are missing.";
 "已找到 %@ 个纸边候选" = "Detected %@ page edge options";
 "无法建立历史记录。%@" = "Could not create the history entry. %@";
-"正在识别第 %@/%@ 页…" = "Recognizing page %@ of %@…";
+"正在提交第 %@/%@ 页…" = "Sending page %@ of %@…";
+"等待识别第 %@/%@ 页…" = "Waiting for the model · page %@ of %@…";
+"正在输出第 %@/%@ 页…" = "Receiving page %@ of %@…";
+"正在保存第 %@/%@ 页…" = "Saving page %@ of %@…";
+"已完成 %@/%@ 页" = "Pages completed: %@ of %@";
+"无法读取识别服务返回的流式数据。" = "Couldn't read the streamed recognition response.";
+"识别服务中途报错，请继续识别未完成的页面。" = "Recognition stopped with a service error. Continue to retry the remaining pages.";
+"识别连接提前结束，请继续识别未完成的页面。" = "The recognition connection closed early. Continue to retry the remaining pages.";
 "第 %@ 页暂停 · 已完成 %@/%@ 页" = "Paused on page %@ · Completed %@ of %@";
 "已按顺序整理 %@ 页" = "Recognized %@ pages in order";
 "历史记录暂未写入。%@" = "Could not save the history entry. %@";

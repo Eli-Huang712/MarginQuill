@@ -40,6 +40,7 @@ struct PreviewFocus: Equatable {
 
 struct MarkdownPreview: NSViewRepresentable {
     let sections: [PreviewSection]
+    let draft: PreviewSection?
     let annotations: [PreviewAnnotation]
     let focus: PreviewFocus?
     let openAnnotation: (UUID) -> Void
@@ -62,7 +63,7 @@ struct MarkdownPreview: NSViewRepresentable {
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
-        context.coordinator.update(view, sections: sections, annotations: annotations,
+        context.coordinator.update(view, sections: sections, draft: draft, annotations: annotations,
                                    dark: colorScheme == .dark, accent: accent.hex(dark: colorScheme == .dark),
                                    focus: focus, openAnnotation: openAnnotation)
     }
@@ -76,21 +77,24 @@ struct MarkdownPreview: NSViewRepresentable {
         private var loaded = false
         var localURL: URL?
         private var sections: [PreviewSection] = []
+        private var draft: PreviewSection?
         private var annotations: [PreviewAnnotation] = []
         private var dark = false
         private var accent = ""
         private var focus: PreviewFocus?
         private var openAnnotation: ((UUID) -> Void)?
         private var renderedSections: [PreviewSection]?
+        private var renderedDraft: PreviewSection?
         private var renderedAnnotations: [PreviewAnnotation]?
         private var renderedDark: Bool?
         private var renderedAccent: String?
         private var appliedFocus: PreviewFocus?
         private var rendering = false
 
-        func update(_ view: WKWebView, sections: [PreviewSection], annotations: [PreviewAnnotation],
+        func update(_ view: WKWebView, sections: [PreviewSection], draft: PreviewSection?, annotations: [PreviewAnnotation],
                     dark: Bool, accent: String, focus: PreviewFocus?, openAnnotation: @escaping (UUID) -> Void) {
             self.sections = sections
+            self.draft = draft
             self.annotations = annotations
             self.dark = dark
             self.accent = accent
@@ -107,6 +111,7 @@ struct MarkdownPreview: NSViewRepresentable {
         private func render(_ view: WKWebView) {
             guard loaded, !rendering else { return }
             if sections == renderedSections, annotations == renderedAnnotations, dark == renderedDark, accent == renderedAccent {
+                renderDraft(view)
                 applyFocus(view)
                 return
             }
@@ -123,12 +128,21 @@ struct MarkdownPreview: NSViewRepresentable {
                 guard let self, let view else { return }
                 self.rendering = false
                 self.renderedSections = rendered
+                self.renderedDraft = nil
                 self.renderedAnnotations = currentAnnotations
                 self.renderedDark = appearance
                 self.renderedAccent = selectedAccent
                 self.appliedFocus = nil
                 self.render(view)
             }
+        }
+
+        private func renderDraft(_ view: WKWebView) {
+            guard draft != renderedDraft else { return }
+            renderedDraft = draft
+            let markdown: Any = draft?.markdown as Any? ?? NSNull()
+            view.callAsyncJavaScript("window.renderPaperDraft(markdown)", arguments: ["markdown": markdown],
+                                     in: nil, in: .page, completionHandler: nil)
         }
 
         private func applyFocus(_ view: WKWebView) {
