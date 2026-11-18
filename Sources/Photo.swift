@@ -41,11 +41,12 @@ struct ImportedPage: Sendable {
             }
             let scale = 2600 / max(bounds.width, bounds.height)
             let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
-            guard let tiff = page.thumbnail(of: size, for: .cropBox).tiffRepresentation else {
+            let preview = page.thumbnail(of: size, for: .cropBox)
+            guard let raster = preview.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                 throw AppFailure.message(L("无法生成扫描件预览。"))
             }
             let label = document.pageCount == 1 ? name : "\(name) · \(index + 1)"
-            return Self(originalPNG: try normalize(tiff), name: label, isScan: true)
+            return Self(originalPNG: try encodePNG(raster), name: label, isScan: true)
         }
     }
 
@@ -59,6 +60,10 @@ struct ImportedPage: Sendable {
               let photo = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             throw AppFailure.message(L("无法读取图片。请选择照片或 PDF。"))
         }
+        return try encodePNG(photo)
+    }
+
+    private static func encodePNG(_ photo: CGImage) throws -> Data {
         let buffer = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(buffer, UTType.png.identifier as CFString, 1, nil) else {
             throw AppFailure.message(L("无法生成 PNG。"))
@@ -140,7 +145,9 @@ enum PhotoPreprocessor {
         }
         let manifest = directory.appendingPathComponent("batch.json")
         try JSONEncoder().encode(jobs).write(to: manifest)
-        let args = ["run", "--no-project", "--python", "3.12", "--script", script.path, "--batch", manifest.path]
+        // Use the same dependency cache across app bundles, even when the script moves.
+        let args = ["run", "--no-project", "--python", "3.12", "--with-requirements", script.path,
+                    "python", script.path, "--batch", manifest.path]
         let data = try await execute(uv, args: args, directory: directory)
         let reports = try JSONDecoder().decode([Report].self, from: data)
         guard reports.count == pages.count else { throw AppFailure.message(L("纸稿预处理结果不完整。")) }

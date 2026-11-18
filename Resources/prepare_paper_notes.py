@@ -249,10 +249,10 @@ def prepare(source, straighten=True, enhance=False, manual_corners=None, *, with
     return photo, corner_report if with_corners else corners is not None
 
 
-def save_png(photo, output):
+def save_png(photo, output, *, compress_level=6):
     with output.open("xb") as target:
         try:
-            photo.save(target, format="PNG")
+            photo.save(target, format="PNG", compress_level=compress_level)
         except OSError:
             target.close()
             output.unlink(missing_ok=True)
@@ -267,7 +267,7 @@ def prepare_batch(manifest):
                                     enhance=job["enhance"], manual_corners=job.get("corners"),
                                     with_report=True, trim=job["trim"], detect_only=job["detectOnly"])
             if photo is not None and (report["corners"] is not None or report["trimBounds"] or job["enhance"]):
-                save_png(photo, Path(job["output"]))
+                save_png(photo, Path(job["output"]), compress_level=2)
             results.append(report)
         except (OSError, ValueError, cv2.error) as error:
             results.append({"error": str(error)})

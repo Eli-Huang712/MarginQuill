@@ -337,13 +337,8 @@ struct WorkspaceView: View {
             ZStack {
                 Color(nsColor: .textBackgroundColor)
                 if workspace.showingSource {
-                    TextEditor(text: Binding(get: { workspace.markdown }, set: { workspace.editMarkdown($0) }))
-                        .font(.system(size: 13, design: .monospaced))
-                        .lineSpacing(4)
-                        .scrollContentBackground(.hidden)
-                        .padding(16)
-                        .disabled(workspace.isRecognizing)
-                        .accessibilityLabel(L("Markdown 源码编辑区"))
+                    MarkdownEditor(text: Binding(get: { workspace.markdown }, set: { workspace.editMarkdown($0) }),
+                                   isEditable: !workspace.isRecognizing)
                 } else if !workspace.markdown.isEmpty {
                     MarkdownPreview(sections: previewSections, annotations: previewAnnotations,
                                     focus: focus, openAnnotation: openAnnotation)

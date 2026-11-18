@@ -70,50 +70,59 @@ final class Workspace: ObservableObject {
     }
 
     func load(urls: [URL]) {
-        guard !isWorking else { return }
-        var imported: [ImportedPage] = []
-        var failures: [String] = []
-        for url in urls {
-            do {
-                imported += try ImportedPage.decode(Data(contentsOf: url), name: url.lastPathComponent)
-            } catch {
-                failures.append(url.lastPathComponent)
+        guard !urls.isEmpty else { return }
+        importPages {
+            var imported: [ImportedPage] = []
+            var failures: [String] = []
+            for url in urls {
+                do {
+                    imported += try ImportedPage.decode(Data(contentsOf: url), name: url.lastPathComponent)
+                } catch {
+                    failures.append(url.lastPathComponent)
+                }
             }
-        }
-        append(imported)
-        if !failures.isEmpty {
-            error = L("这些文件无法导入：%@", failures.joined(separator: L("、")))
+            let error = failures.isEmpty ? nil : L("这些文件无法导入：%@", failures.joined(separator: L("、")))
+            return (imported, error)
         }
     }
 
     @discardableResult
     func load(captures: [(data: Data, name: String)]) -> Bool {
-        guard !isWorking else { return false }
-        var imported: [ImportedPage] = []
-        var failures: [String] = []
-        for capture in captures {
-            do {
-                imported += try ImportedPage.decode(capture.data, name: capture.name)
-            } catch {
-                failures.append(error.localizedDescription)
+        guard !captures.isEmpty else { return false }
+        return importPages {
+            var imported: [ImportedPage] = []
+            var firstError: String?
+            for capture in captures {
+                do {
+                    imported += try ImportedPage.decode(capture.data, name: capture.name)
+                } catch {
+                    firstError = firstError ?? error.localizedDescription
+                }
             }
+            return (imported, firstError)
         }
-        append(imported)
-        if let firstFailure = failures.first { error = firstFailure }
-        return !imported.isEmpty
     }
 
-    private func append(_ imports: [ImportedPage]) {
-        guard !imports.isEmpty else { return }
-        let newPages = imports.map { PaperPage(source: $0) }
-        pages += newPages
-        selectedPageID = newPages.first?.id
-        imagesChanged = true
+    @discardableResult
+    private func importPages(_ read: @escaping @Sendable () -> (pages: [ImportedPage], error: String?)) -> Bool {
+        guard !isWorking else { return false }
         isPreparing = true
         error = nil
-        notice = L("正在预处理 %@ 页…", newPages.count)
+        notice = L("正在读取纸稿…")
+        let start = ContinuousClock.now
         Task {
             defer { isPreparing = false }
+            let (imports, importError) = await Task.detached(priority: .userInitiated, operation: read).value
+            error = importError
+            guard !imports.isEmpty else {
+                notice = ""
+                return
+            }
+            let newPages = imports.map { PaperPage(source: $0) }
+            pages += newPages
+            selectedPageID = newPages.first?.id
+            imagesChanged = true
+            notice = L("正在预处理 %@ 页…", newPages.count)
             do {
                 let results = try await Task.detached(priority: .userInitiated) {
                     try await PhotoPreprocessor.runBatch(imports)
@@ -128,12 +137,15 @@ final class Workspace: ObservableObject {
                         self.error = error.localizedDescription
                     }
                 }
-                notice = failed == 0 ? L("已导入 %@ 页", newPages.count) : L("%@ 页使用原图", failed)
+                let elapsed = start.duration(to: .now).formatted(.units(allowed: [.seconds], width: .abbreviated,
+                                                                         fractionalPart: .show(length: 1)))
+                notice = failed == 0 ? L("已导入 %@ 页 · %@", newPages.count, elapsed) : L("%@ 页使用原图", failed)
             } catch {
                 notice = L("%@ 页使用原图", newPages.count)
                 self.error = error.localizedDescription
             }
         }
+        return true
     }
 
     func movePage(_ id: UUID, by offset: Int) {
